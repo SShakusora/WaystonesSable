@@ -1,0 +1,29 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.sshakusora.waystonessable.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "DistanceToPlayerComparatorMixin",
+    "PlayerWaystoneManagerMixin",
+    "WaystoneSyncManagerMixin",
+    "WaystoneTeleportManagerDoTeleportMixin",
+    "WarpPlateBlockEntityMixin",
+    "WarpPlateBlockMixin",
+    "WarpPlateServerTickMixin",
+    "WaystoneImplMixin",
+    "WaystoneTeleportManagerMixin",
+    "accessor.SubLevelHoldingChunkAccessor",
+    "accessor.SubLevelHoldingChunkMapAccessor"
+  ],
+  "client": [
+    "client.ClientboundStopTrackingSubLevelPacketMixin",
+    "client.WaystoneButtonMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}
