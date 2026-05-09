@@ -6,12 +6,12 @@
   "mixins": [
     "DistanceToPlayerComparatorMixin",
     "PlayerWaystoneManagerMixin",
-    "WaystoneSyncManagerMixin",
-    "WaystoneTeleportManagerDoTeleportMixin",
     "WarpPlateBlockEntityMixin",
     "WarpPlateBlockMixin",
     "WarpPlateServerTickMixin",
     "WaystoneImplMixin",
+    "WaystoneSyncManagerMixin",
+    "WaystoneTeleportManagerDoTeleportMixin",
     "WaystoneTeleportManagerMixin",
     "accessor.SubLevelHoldingChunkAccessor",
     "accessor.SubLevelHoldingChunkMapAccessor"
