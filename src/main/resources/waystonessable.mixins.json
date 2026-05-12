@@ -9,6 +9,8 @@
     "WarpPlateBlockEntityMixin",
     "WarpPlateBlockMixin",
     "WarpPlateServerTickMixin",
+    "WaystoneBlockBaseMixin",
+    "WaystoneBlockEntityBaseMixin",
     "WaystoneImplMixin",
     "WaystoneSyncManagerMixin",
     "WaystoneTeleportManagerDoTeleportMixin",

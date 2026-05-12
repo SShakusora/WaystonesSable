@@ -42,11 +42,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
 
 @SuppressWarnings("all")
 public final class SableWaystoneCompat {
 
     private static final Map<UUID, WarpPlateArrivalGuard> WARP_PLATE_ARRIVAL_GUARDS = new ConcurrentHashMap<>();
+    private static final Map<MovingBlockKey, Boolean> MOVING_WAYSTONES = new ConcurrentHashMap<>();
 
     private SableWaystoneCompat() {
     }
@@ -82,6 +84,10 @@ public final class SableWaystoneCompat {
     }
 
     public static List<Entity> getEntitiesInsideBlock(Level level, BlockPos blockPos) {
+        return getEntitiesInsideBlock(level, blockPos, EntitySelector.ENTITY_STILL_ALIVE);
+    }
+
+    public static List<Entity> getEntitiesInsideBlock(Level level, BlockPos blockPos, Predicate<? super Entity> predicate) {
         if (Sable.HELPER.getContaining(level, blockPos) == null) {
             AABB bounds = new AABB(
                     blockPos.getX(),
@@ -91,18 +97,30 @@ public final class SableWaystoneCompat {
                     blockPos.getY() + 1,
                     blockPos.getZ() + 1
             );
-            return level.getEntities((Entity) null, bounds, EntitySelector.ENTITY_STILL_ALIVE);
+            return level.getEntities((Entity) null, bounds, entity ->
+                    EntitySelector.ENTITY_STILL_ALIVE.test(entity) && predicate.test(entity)
+            );
         }
 
         Vec3 visibleCenter = projectToVisible(level, blockPos.getCenter());
         AABB searchBounds = new AABB(visibleCenter, visibleCenter).inflate(2.0);
         return level.getEntities((Entity) null, searchBounds, entity ->
-                EntitySelector.ENTITY_STILL_ALIVE.test(entity) && isEntityInsideBlock(level, blockPos, entity)
+                EntitySelector.ENTITY_STILL_ALIVE.test(entity)
+                        && predicate.test(entity)
+                        && isEntityInsideBlock(level, blockPos, entity)
         );
     }
 
     public static void registerWarpPlateArrivalGuard(Entity entity, Level level, BlockPos blockPos) {
         WARP_PLATE_ARRIVAL_GUARDS.put(entity.getUUID(), new WarpPlateArrivalGuard(level.dimension(), blockPos.immutable()));
+    }
+
+    public static void markMovingWaystone(Level level, BlockPos blockPos) {
+        MOVING_WAYSTONES.put(new MovingBlockKey(level.dimension(), blockPos.immutable()), Boolean.TRUE);
+    }
+
+    public static boolean consumeMovingWaystone(Level level, BlockPos blockPos) {
+        return MOVING_WAYSTONES.remove(new MovingBlockKey(level.dimension(), blockPos.immutable())) != null;
     }
 
     public static boolean consumeWarpPlateArrivalGuard(Level level, BlockPos blockPos, Entity entity) {
@@ -444,5 +462,8 @@ public final class SableWaystoneCompat {
     }
 
     private record WarpPlateArrivalGuard(ResourceKey<Level> dimension, BlockPos blockPos) {
+    }
+
+    private record MovingBlockKey(ResourceKey<Level> dimension, BlockPos blockPos) {
     }
 }

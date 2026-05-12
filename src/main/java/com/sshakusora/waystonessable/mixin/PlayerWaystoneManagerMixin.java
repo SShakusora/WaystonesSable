@@ -1,6 +1,7 @@
 package com.sshakusora.waystonessable.mixin;
 
 import com.sshakusora.waystonessable.compat.SableWaystoneCompat;
+import dev.ryanhcode.sable.Sable;
 import net.blay09.mods.waystones.api.Waystone;
 import net.blay09.mods.waystones.core.PlayerWaystoneManager;
 import net.minecraft.world.entity.player.Player;
@@ -18,7 +19,17 @@ public abstract class PlayerWaystoneManagerMixin {
 
     @Inject(method = "getNearestWaystone", at = @At("HEAD"), cancellable = true)
     private static void waystonesSable$getNearestWaystone(Player player, CallbackInfoReturnable<Optional<Waystone>> cir) {
-        Optional<Waystone> nearest = PlayerWaystoneManager.getPlayerWaystoneData(player.level()).getWaystones(player).stream()
+        var waystones = PlayerWaystoneManager.getPlayerWaystoneData(player.level()).getWaystones(player);
+        boolean playerOnSubLevel = Sable.HELPER.getContaining(player.level(), player.blockPosition()) != null;
+        boolean anyWaystoneOnSubLevel = waystones.stream().anyMatch(waystone ->
+                waystone.getDimension() == player.level().dimension()
+                        && Sable.HELPER.getContaining(player.level(), waystone.getPos()) != null
+        );
+        if (!playerOnSubLevel && !anyWaystoneOnSubLevel) {
+            return;
+        }
+
+        Optional<Waystone> nearest = waystones.stream()
                 .filter(waystone -> waystone.getDimension() == player.level().dimension())
                 .min(Comparator.comparingDouble(waystone -> SableWaystoneCompat.getWaystoneDistanceSqr(player, waystone)));
         cir.setReturnValue(nearest);
