@@ -112,7 +112,7 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 dependencies {
     implementation "maven.modrinth:create:mc1.21.1-6.0.9"
-    implementation "maven.modrinth:waystones:21.1.32+neoforge-1.21.1"
+    implementation "maven.modrinth:waystones:21.1.33+neoforge-1.21.1"
     implementation "maven.modrinth:create-aeronautics:1.1.0+mc1.21.1"
     implementation ("dev.ryanhcode.sable:sable-neoforge-${minecraft_version}:${sable_version}") {
         exclude group: "foundry.veil"

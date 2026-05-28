@@ -1,7 +1,6 @@
 package com.sshakusora.waystonessable.mixin.client;
 
 import com.sshakusora.waystonessable.client.WaystoneSubLevelClientCache;
-import com.sshakusora.waystonessable.compat.SableWaystoneCompat;
 import net.blay09.mods.waystones.api.Waystone;
 import net.blay09.mods.waystones.api.WaystoneTypes;
 import net.blay09.mods.waystones.api.WaystoneVisibility;
@@ -35,7 +34,11 @@ public abstract class WaystoneButtonMixin {
 
     @Redirect(method = "renderWidget", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/LocalPlayer;distanceToSqr(Lnet/minecraft/world/phys/Vec3;)D"))
     private double waystonesSable$renderVisibleDistance(LocalPlayer player, Vec3 rawWaystonePos) {
-        return SableWaystoneCompat.getWaystoneDistance(player, this.waystone);
+        Vec3 visiblePos = WaystoneSubLevelClientCache.getVisiblePosition(this.waystone);
+        if (visiblePos != null) {
+            return player.distanceToSqr(visiblePos);
+        }
+        return player.distanceToSqr(rawWaystonePos);
     }
 
     @Unique

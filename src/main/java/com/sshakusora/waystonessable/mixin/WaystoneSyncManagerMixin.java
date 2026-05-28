@@ -9,8 +9,10 @@ import net.blay09.mods.waystones.core.WaystoneManagerImpl;
 import net.blay09.mods.waystones.core.WaystoneSyncManager;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -52,10 +54,22 @@ public class WaystoneSyncManagerMixin {
         }
 
         List<WaystoneSubLevelStatePayload.Entry> entries = waystones.stream()
-                .map(waystone -> new WaystoneSubLevelStatePayload.Entry(
-                        waystone.getWaystoneUid(),
-                        SableWaystoneCompat.isWaystoneOnSubLevel(serverPlayer.server, waystone)
-                ))
+                .map(waystone -> {
+                    boolean isOnSubLevel = SableWaystoneCompat.isWaystoneOnSubLevel(serverPlayer.server, waystone);
+                    Vec3 visiblePos;
+                    ServerLevel level = serverPlayer.server.getLevel(waystone.getDimension());
+                    if (level != null) {
+                        visiblePos = SableWaystoneCompat.projectToVisible(level, waystone.getPos().getCenter());
+                    } else {
+                        visiblePos = waystone.getPos().getCenter();
+                    }
+                    return new WaystoneSubLevelStatePayload.Entry(
+                            waystone.getWaystoneUid(),
+                            isOnSubLevel,
+                            visiblePos,
+                            waystone.getDimension()
+                    );
+                })
                 .toList();
         serverPlayer.connection.send(new ClientboundCustomPayloadPacket(new WaystoneSubLevelStatePayload(entries)));
     }

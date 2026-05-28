@@ -50,7 +50,18 @@ public final class SableWaystoneCompat {
     private static final Map<UUID, WarpPlateArrivalGuard> WARP_PLATE_ARRIVAL_GUARDS = new ConcurrentHashMap<>();
     private static final Map<MovingBlockKey, Boolean> MOVING_WAYSTONES = new ConcurrentHashMap<>();
 
+    @FunctionalInterface
+    public interface ClientDistanceProvider {
+        double getDistanceSqr(Player player, Waystone waystone);
+    }
+
+    private static volatile ClientDistanceProvider clientDistanceProvider;
+
     private SableWaystoneCompat() {
+    }
+
+    public static void setClientDistanceProvider(ClientDistanceProvider provider) {
+        clientDistanceProvider = provider;
     }
 
     public static Vec3 projectToVisible(Level level, Vec3 pos) {
@@ -58,6 +69,10 @@ public final class SableWaystoneCompat {
     }
 
     public static double getWaystoneDistanceSqr(Player player, Waystone waystone) {
+        if (player.level().isClientSide() && clientDistanceProvider != null) {
+            return clientDistanceProvider.getDistanceSqr(player, waystone);
+        }
+
         if (waystone.getDimension() != player.level().dimension()) {
             return waystone.getPos().distToCenterSqr(player.getX(), player.getY(), player.getZ());
         }

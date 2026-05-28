@@ -75,8 +75,8 @@ side = "BOTH"
 [[dependencies."${mod_id}"]]
 modId = "waystones"
 type = "required"
-reason = "Requires Waystones 21.1.32+ for the Sable distance calculation compatibility fix and to avoid known disconnect issues in earlier builds"
-versionRange = "[21.1.32,)"
+reason = "Requires Waystones 21.1.33+ for the distance calculation fix from Waystones"
+versionRange = "[21.1.33,)"
 ordering = "AFTER"
 side = "BOTH"
 
