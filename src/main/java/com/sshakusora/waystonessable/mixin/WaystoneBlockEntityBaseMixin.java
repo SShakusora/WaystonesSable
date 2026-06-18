@@ -1,5 +1,6 @@
 package com.sshakusora.waystonessable.mixin;
 
+import com.sshakusora.waystonessable.compat.SableWaystoneCompat;
 import net.blay09.mods.waystones.api.MutableWaystone;
 import net.blay09.mods.waystones.api.Waystone;
 import net.blay09.mods.waystones.block.entity.WaystoneBlockEntityBase;
@@ -30,11 +31,13 @@ public abstract class WaystoneBlockEntityBaseMixin {
         boolean dimensionChanged = waystone.getDimension() != serverLevel.dimension();
         boolean positionChanged = !waystone.getPos().equals(self.getBlockPos());
         if (!dimensionChanged && !positionChanged) {
+            SableWaystoneCompat.updateWaystoneTrackingPoint(serverLevel, waystone);
             return;
         }
 
         mutableWaystone.setDimension(serverLevel.dimension());
         mutableWaystone.setPos(self.getBlockPos());
+        SableWaystoneCompat.updateWaystoneTrackingPoint(serverLevel, waystone);
         WaystoneManagerImpl.get(serverLevel.getServer()).setDirty();
         WaystoneSyncManager.sendWaystoneUpdateToAll(serverLevel.getServer(), waystone);
     }

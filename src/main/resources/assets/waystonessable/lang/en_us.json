@@ -1,3 +1,5 @@
 {
-  "gui.waystonessable.waystone.sublevel": " [SubLevel]"
+  "gui.waystonessable.waystone.sublevel": " [SubLevel]",
+  "commands.waystones.activateall.success.single": "Activated %s waystones for %s",
+  "commands.waystones.activateall.success.multiple": "Activated %s waystones for %s players"
 }

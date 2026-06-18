@@ -25,8 +25,9 @@ public class WaystoneTeleportManagerMixin {
     @Inject(method = "teleportEntity", at = @At("HEAD"))
     private static void waystonesSable$captureTargetPos(Entity entity, ServerLevel targetWorld, Vec3 targetPos3d, Direction direction, CallbackInfoReturnable<Entity> cir) {
         waystonesSable$originalTargetPos.set(targetPos3d);
-        waystonesSable$dimensionalTeleport.set(targetWorld.dimensionType() != entity.level().dimensionType());
-        if (targetWorld.dimensionType() != entity.level().dimensionType()) {
+        boolean dimensionalTeleport = targetWorld != entity.level();
+        waystonesSable$dimensionalTeleport.set(dimensionalTeleport);
+        if (dimensionalTeleport) {
             SableWaystoneCompat.prepareCrossDimensionTeleport(entity, targetWorld, targetPos3d);
         }
     }

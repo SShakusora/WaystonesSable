@@ -59,7 +59,7 @@ public class WaystoneSyncManagerMixin {
                     Vec3 visiblePos;
                     ServerLevel level = serverPlayer.server.getLevel(waystone.getDimension());
                     if (level != null) {
-                        visiblePos = SableWaystoneCompat.projectToVisible(level, waystone.getPos().getCenter());
+                        visiblePos = SableWaystoneCompat.getVisibleWaystonePos(level, waystone);
                     } else {
                         visiblePos = waystone.getPos().getCenter();
                     }

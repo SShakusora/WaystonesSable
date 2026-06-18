@@ -14,12 +14,11 @@
     "WaystoneImplMixin",
     "WaystoneSyncManagerMixin",
     "WaystoneTeleportManagerDoTeleportMixin",
-    "WaystoneTeleportManagerMixin",
-    "accessor.SubLevelHoldingChunkAccessor",
-    "accessor.SubLevelHoldingChunkMapAccessor"
+    "WaystoneTeleportManagerMixin"
   ],
   "client": [
     "client.ClientboundStopTrackingSubLevelPacketMixin",
+    "client.ClientPacketListenerMixin",
     "client.WaystoneButtonMixin"
   ],
   "injectors": {

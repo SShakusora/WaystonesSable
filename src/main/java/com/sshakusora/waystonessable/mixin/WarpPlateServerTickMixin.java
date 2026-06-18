@@ -1,7 +1,7 @@
 package com.sshakusora.waystonessable.mixin;
 
 import com.sshakusora.waystonessable.compat.SableWaystoneCompat;
-import dev.ryanhcode.sable.Sable;
+import dev.ryanhcode.sable.companion.SableCompanion;
 import net.blay09.mods.waystones.block.entity.WarpPlateBlockEntity;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;
@@ -22,7 +22,7 @@ public abstract class WarpPlateServerTickMixin {
             return instance.getEntities(entity, bounds, predicate);
         }
 
-        if (Sable.HELPER.getContaining(self.getLevel(), self.getBlockPos()) == null) {
+        if (SableCompanion.INSTANCE.getContaining(self.getLevel(), self.getBlockPos()) == null) {
             return instance.getEntities(entity, bounds, predicate);
         }
 

@@ -1,7 +1,7 @@
 package com.sshakusora.waystonessable.mixin;
 
 import com.sshakusora.waystonessable.compat.SableWaystoneCompat;
-import dev.ryanhcode.sable.Sable;
+import dev.ryanhcode.sable.companion.SableCompanion;
 import net.blay09.mods.waystones.block.WarpPlateBlock;
 import net.blay09.mods.waystones.block.entity.WarpPlateBlockEntity;
 import net.minecraft.core.BlockPos;
@@ -23,7 +23,7 @@ public class WarpPlateBlockMixin {
             return;
         }
 
-        if (Sable.HELPER.getContaining(world, pos) == null) {
+        if (SableCompanion.INSTANCE.getContaining(world, pos) == null) {
             return;
         }
 

@@ -22,6 +22,7 @@ public class WaystoneTeleportManagerDoTeleportMixin {
 
     @Inject(method = "doTeleport(Lnet/blay09/mods/waystones/api/WaystoneTeleportContext;Lnet/blay09/mods/waystones/api/TeleportDestination;)Lcom/mojang/datafixers/util/Either;", at = @At("HEAD"))
     private static void waystonesSable$registerWarpPlateArrivalGuard(WaystoneTeleportContext context, TeleportDestination destination, CallbackInfoReturnable<Either<List<Entity>, ?>> cir) {
+        SableWaystoneCompat.beginTeleport(context.getTargetWaystone());
         if (!context.getTargetWaystone().getWaystoneType().equals(WaystoneTypes.WARP_PLATE)) {
             return;
         }
@@ -34,6 +35,11 @@ public class WaystoneTeleportManagerDoTeleportMixin {
         for (Entity additionalEntity : context.getAdditionalEntities()) {
             waystonesSable$registerEntityAndVehicle(additionalEntity, destination, targetPos);
         }
+    }
+
+    @Inject(method = "doTeleport(Lnet/blay09/mods/waystones/api/WaystoneTeleportContext;Lnet/blay09/mods/waystones/api/TeleportDestination;)Lcom/mojang/datafixers/util/Either;", at = @At("RETURN"))
+    private static void waystonesSable$clearTeleportTarget(WaystoneTeleportContext context, TeleportDestination destination, CallbackInfoReturnable<Either<List<Entity>, ?>> cir) {
+        SableWaystoneCompat.endTeleport();
     }
 
     private static void waystonesSable$registerEntityAndVehicle(Entity entity, TeleportDestination destination, BlockPos targetPos) {

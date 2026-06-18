@@ -30,7 +30,12 @@ public abstract class WaystoneBlockBaseMixin implements BlockSubLevelAssemblyLis
 
     @Inject(method = "onRemove", at = @At("HEAD"))
     private void waystonesSable$beginMoveAwareRemoval(BlockState state, Level world, BlockPos pos, BlockState newState, boolean isMoving, CallbackInfo ci) {
-        waystonesSable$skipRemoval.set(SableWaystoneCompat.consumeMovingWaystone(world, pos));
+        boolean skipRemoval = SableWaystoneCompat.consumeMovingWaystone(world, pos);
+        waystonesSable$skipRemoval.set(skipRemoval);
+        if (!skipRemoval && !state.is(newState.getBlock()) && world instanceof ServerLevel serverLevel
+                && world.getBlockEntity(pos) instanceof WaystoneBlockEntityBase waystoneBlockEntity) {
+            SableWaystoneCompat.removeWaystoneTrackingPoint(serverLevel, waystoneBlockEntity.getWaystone());
+        }
     }
 
     @Inject(method = "onRemove", at = @At("RETURN"))

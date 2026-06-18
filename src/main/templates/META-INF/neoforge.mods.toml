@@ -75,8 +75,14 @@ side = "BOTH"
 [[dependencies."${mod_id}"]]
 modId = "waystones"
 type = "required"
-reason = "Requires Waystones 21.1.33+ for the distance calculation fix from Waystones"
-versionRange = "[21.1.33,)"
+versionRange = "[21.1.34,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
+modId = "sable"
+type = "required"
+versionRange = "[2.0.3,)"
 ordering = "AFTER"
 side = "BOTH"
 
