@@ -4,22 +4,12 @@
   "package": "com.sshakusora.waystonessable.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "DistanceToPlayerComparatorMixin",
-    "PlayerWaystoneManagerMixin",
-    "WarpPlateBlockEntityMixin",
-    "WarpPlateBlockMixin",
-    "WarpPlateServerTickMixin",
     "WaystoneBlockBaseMixin",
-    "WaystoneBlockEntityBaseMixin",
-    "WaystoneImplMixin",
-    "WaystoneSyncManagerMixin",
-    "WaystoneTeleportManagerDoTeleportMixin",
-    "WaystoneTeleportManagerMixin"
+    "WaystoneBlockEntityBaseMixin"
   ],
   "client": [
     "client.ClientboundStopTrackingSubLevelPacketMixin",
-    "client.ClientPacketListenerMixin",
-    "client.WaystoneButtonMixin"
+    "client.ClientPacketListenerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

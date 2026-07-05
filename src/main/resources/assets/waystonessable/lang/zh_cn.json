@@ -1,5 +1,5 @@
 {
-  "gui.waystonessable.waystone.sublevel": " [物理结构]",
+  "gui.waystonessable.waystone_group.sable": "Sable 物理结构",
   "commands.waystones.activateall.success.single": "已为 %2$s 激活 %1$s 个传送石碑",
   "commands.waystones.activateall.success.multiple": "已为 %2$s 名玩家激活 %1$s 个传送石碑"
 }

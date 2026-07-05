@@ -1,11 +1,15 @@
 package com.sshakusora.waystonessable;
 
 import com.mojang.logging.LogUtils;
+import com.sshakusora.waystonessable.client.SableWaystoneClientHandler;
 import com.sshakusora.waystonessable.command.ActivateAllWaystonesCommand;
+import com.sshakusora.waystonessable.compat.SableWaystoneEventHandler;
 import com.sshakusora.waystonessable.network.ModPayloads;
+import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import org.slf4j.Logger;
@@ -17,6 +21,10 @@ public class WaystonesSable {
 
     public WaystonesSable(IEventBus modEventBus, ModContainer modContainer) {
         ModPayloads.register(modEventBus);
+        SableWaystoneEventHandler.register();
+        if (FMLEnvironment.dist == Dist.CLIENT) {
+            SableWaystoneClientHandler.register(modEventBus);
+        }
 
         NeoForge.EVENT_BUS.addListener(this::onRegisterCommands);
     }

@@ -23,9 +23,6 @@ public class ClientPacketListenerMixin {
 
         SubLevelContainer container = SubLevelContainer.getContainer(level);
         ChunkPos chunkPos = packet.pos();
-        // Sable owns plot lifetime and removes it as a whole via its stop-tracking
-        // packet. Vanilla's per-chunk forget path is invalid for plot chunks and
-        // ClientChunkCacheMixin deliberately throws if it reaches drop().
         if (container != null && container.inBounds(chunkPos.x, chunkPos.z)) {
             ci.cancel();
         }

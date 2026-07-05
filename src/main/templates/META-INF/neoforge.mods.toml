@@ -75,7 +75,7 @@ side = "BOTH"
 [[dependencies."${mod_id}"]]
 modId = "waystones"
 type = "required"
-versionRange = "[21.1.34,)"
+versionRange = "[21.1.35,)"
 ordering = "AFTER"
 side = "BOTH"
 

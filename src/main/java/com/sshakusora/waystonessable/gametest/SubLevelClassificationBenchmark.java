@@ -42,7 +42,7 @@ public final class SubLevelClassificationBenchmark {
     private SubLevelClassificationBenchmark() {
     }
 
-    @GameTest(template = "gravity", timeoutTicks = 1200, required = false)
+    @GameTest(template = "gravity", batch = "benchmark", timeoutTicks = 1200, required = false)
     public static void subLevelClassificationBenchmark(GameTestHelper helper) {
         helper.runAfterDelay(5, () -> {
             ServerLevel level = helper.getLevel();
@@ -94,6 +94,10 @@ public final class SubLevelClassificationBenchmark {
                     maxMillis
             ));
 
+            for (Scenario scenario : scenarios) {
+                SubLevelWaystoneTestSupport.clearSubLevelPlot(container, scenario.subLevel());
+            }
+
             if (hits != WAYSTONE_COUNT) {
                 helper.fail("Expected all occupied, unloaded sublevels to classify true, got " + hits + " of " + WAYSTONE_COUNT);
                 return;
@@ -132,8 +136,7 @@ public final class SubLevelClassificationBenchmark {
         int hits = 0;
         for (Scenario scenario : scenarios) {
             Waystone waystone = scenario.waystone();
-            if (waystone.isValidInLevel(level)
-                    && SableWaystoneCompat.isWaystoneOnSubLevel(level.getServer(), waystone)) {
+            if (SableWaystoneCompat.isWaystoneOnSubLevel(level.getServer(), waystone)) {
                 hits++;
             }
         }
@@ -168,6 +171,7 @@ public final class SubLevelClassificationBenchmark {
         }
 
         subLevel.updateLastPose();
+        SubLevelWaystoneTestSupport.trackSubLevelWaystone(container.getLevel(), subLevel, waystone);
         return new Scenario(waystone, subLevel);
     }
 

@@ -30,19 +30,5 @@ public class ModPayloads {
                     });
                 }
         );
-        registrar.playToClient(
-                WaystoneSubLevelStatePayload.TYPE,
-                WaystoneSubLevelStatePayload.CODEC,
-                (payload, context) -> {
-                    context.enqueueWork(() -> WaystoneSubLevelStatePayload.handle(payload, context.player()));
-                }
-        );
-        registrar.playToClient(
-                WaystoneSubLevelRemovalPayload.TYPE,
-                WaystoneSubLevelRemovalPayload.CODEC,
-                (payload, context) -> {
-                    context.enqueueWork(() -> WaystoneSubLevelRemovalPayload.handle(payload, context.player()));
-                }
-        );
     }
 }
