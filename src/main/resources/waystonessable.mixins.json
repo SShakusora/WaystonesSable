@@ -8,6 +8,7 @@
     "WaystoneBlockEntityBaseMixin"
   ],
   "client": [
+    "client.ClientboundStartTrackingSubLevelPacketMixin",
     "client.ClientboundStopTrackingSubLevelPacketMixin",
     "client.ClientPacketListenerMixin"
   ],

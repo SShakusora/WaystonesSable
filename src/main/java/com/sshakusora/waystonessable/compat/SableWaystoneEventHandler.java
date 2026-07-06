@@ -1,11 +1,14 @@
 package com.sshakusora.waystonessable.compat;
 
 import net.blay09.mods.balm.api.Balm;
-import net.blay09.mods.waystones.api.TeleportDestination;
-import net.blay09.mods.waystones.api.event.CollectDefaultWaystoneGroupsEvent;
-import net.blay09.mods.waystones.api.event.CollectDynamicWaystoneGroupsEvent;
-import net.blay09.mods.waystones.api.event.WaystoneTeleportEntityEvent;
-import net.blay09.mods.waystones.api.event.WaystoneTeleportEvent;
+import net.blay09.mods.waystones.api.*;
+import net.blay09.mods.waystones.api.event.*;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.phys.Vec3;
+
+import java.util.List;
 
 public final class SableWaystoneEventHandler {
 
@@ -18,6 +21,7 @@ public final class SableWaystoneEventHandler {
         Balm.getEvents().onEvent(WaystoneTeleportEntityEvent.Post.class, SableWaystoneEventHandler::onTeleportEntityPost);
         Balm.getEvents().onEvent(CollectDefaultWaystoneGroupsEvent.class, SableWaystoneEventHandler::onCollectDefaultGroups);
         Balm.getEvents().onEvent(CollectDynamicWaystoneGroupsEvent.class, SableWaystoneEventHandler::onCollectDynamicGroups);
+        Balm.getEvents().onEvent(BuildWaystoneSelectionMenuEvent.class, SableWaystoneEventHandler::onBuildWaystoneSelectionMenu);
     }
 
     private static void onPrepareTeleport(WaystoneTeleportEvent.Prepare event) {
@@ -67,6 +71,58 @@ public final class SableWaystoneEventHandler {
     private static void onCollectDynamicGroups(CollectDynamicWaystoneGroupsEvent event) {
         if (SableWaystoneCompat.isWaystoneOnSubLevel(event.getWaystone())) {
             event.addGroup(SableWaystoneGroups.defaultGroup());
+        }
+    }
+
+    private static void onBuildWaystoneSelectionMenu(BuildWaystoneSelectionMenuEvent event) {
+        MinecraftServer server = event.getPlayer().getServer();
+        if (server == null) {
+            return;
+        }
+
+        List<MutablePersonalizedWaystone> waystones = event.getWaystones();
+        for (int i = 0; i < waystones.size(); i++) {
+            MutablePersonalizedWaystone waystone = waystones.get(i);
+            if (waystone instanceof SubLevelWaystone) {
+                continue;
+            }
+
+            ServerLevel level = server.getLevel(waystone.getDimension());
+            if (level == null || !SableWaystoneCompat.isWaystoneOnSubLevel(server, waystone)) {
+                continue;
+            }
+
+            Vec3 visiblePos = SableWaystoneCompat.getVisibleWaystonePos(level, waystone);
+            BlockPos visibleBlockPos = BlockPos.containing(visiblePos);
+            if (!visibleBlockPos.equals(waystone.getPos())) {
+                waystones.set(i, new SubLevelWaystone(waystone, visibleBlockPos));
+            }
+        }
+    }
+
+    private static final class SubLevelWaystone extends MutablePersonalizedWaystoneDelegate {
+        private final Waystone visibleBackingWaystone;
+        private final BlockPos visiblePos;
+
+        private SubLevelWaystone(MutablePersonalizedWaystone delegate, BlockPos visiblePos) {
+            super(delegate);
+            this.visiblePos = visiblePos;
+            this.visibleBackingWaystone = new WaystoneDelegate(delegate.getBackingWaystone()) {
+                @Override
+                public BlockPos getPos() {
+                    return visiblePos;
+                }
+            };
+        }
+
+        @Override
+        public Waystone getBackingWaystone() {
+            return visibleBackingWaystone;
+        }
+
+        @Override
+        public BlockPos getPos() {
+            return visiblePos;
         }
     }
 }
