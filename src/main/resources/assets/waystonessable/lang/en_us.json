@@ -1,4 +1,5 @@
 {
+  "waystones.groups.sable": "Sable SubLevels",
   "gui.waystonessable.waystone_group.sable": "Sable SubLevels",
   "commands.waystones.activateall.success.single": "Activated %s waystones for %s",
   "commands.waystones.activateall.success.multiple": "Activated %s waystones for %s players"

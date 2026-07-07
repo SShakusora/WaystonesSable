@@ -124,11 +124,7 @@ public final class SableWaystoneCompat {
         }
 
         ServerSubLevelContainer container = ServerSubLevelContainer.getContainer(level);
-        if (container == null) {
-            return false;
-        }
-
-        if (trackingPoint.subLevelID() != null) {
+        if (container != null && trackingPoint.subLevelID() != null) {
             if (container.getSubLevel(trackingPoint.subLevelID()) != null) {
                 return true;
             }
@@ -140,13 +136,7 @@ public final class SableWaystoneCompat {
             }
         }
 
-        if (trackingPoint.lastSavedSubLevelPointer() != null) {
-            var pointer = trackingPoint.lastSavedSubLevelPointer();
-            return container.getHoldingChunkMap().getStorage()
-                    .attemptLoadSubLevel(pointer.chunkPos(), pointer.local()) != null;
-        }
-
-        return trackingPoint.subLevelID() != null || trackingPoint.globalPlaceholderPosition() != null;
+        return trackingPoint.subLevelID() != null || trackingPoint.lastSavedSubLevelPointer() != null || trackingPoint.globalPlaceholderPosition() != null;
     }
 
     public static Vec3 getVisibleWaystonePos(ServerLevel level, Waystone waystone) {

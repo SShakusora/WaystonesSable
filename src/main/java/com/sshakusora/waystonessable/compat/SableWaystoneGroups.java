@@ -1,6 +1,7 @@
 package com.sshakusora.waystonessable.compat;
 
 import com.sshakusora.waystonessable.WaystonesSable;
+import net.blay09.mods.waystones.Waystones;
 import net.blay09.mods.waystones.api.WaystoneGroup;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -8,7 +9,7 @@ import net.minecraft.resources.ResourceLocation;
 public final class SableWaystoneGroups {
 
     public static final ResourceLocation SABLE_GROUP_ID = ResourceLocation.fromNamespaceAndPath(WaystonesSable.MOD_ID, "sable");
-    public static final ResourceLocation SABLE_GROUP_ICON = ResourceLocation.fromNamespaceAndPath(WaystonesSable.MOD_ID, "groups/sable");
+    public static final ResourceLocation SABLE_GROUP_ICON = Waystones.id("groups/sable");
 
     private static final WaystoneGroup DEFAULT_SABLE_GROUP = new SableGroup(
             SABLE_GROUP_ID,
