@@ -124,5 +124,14 @@ public final class SableWaystoneEventHandler {
         public BlockPos getPos() {
             return visiblePos;
         }
+
+        @Override
+        public boolean isValidInLevel(ServerLevel level) {
+            if (super.isValidInLevel(level)) {
+                return true;
+            }
+
+            return SableWaystoneCompat.isTrackedSubLevelTeleportTarget(level, this);
+        }
     }
 }

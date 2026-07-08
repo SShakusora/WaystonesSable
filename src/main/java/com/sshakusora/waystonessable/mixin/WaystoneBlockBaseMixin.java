@@ -35,15 +35,19 @@ public abstract class WaystoneBlockBaseMixin implements BlockSubLevelAssemblyLis
 
         waystoneBlockEntity.onLoad();
         Waystone waystone = waystoneBlockEntity.getWaystone();
+        boolean initializedFromMovedWaystone = false;
         if (!waystone.isValid() && movedWaystone instanceof WaystoneImpl movedWaystoneImpl) {
             waystoneBlockEntity.initializeFromExisting(resultingLevel, movedWaystoneImpl, ItemStack.EMPTY);
             waystone = waystoneBlockEntity.getWaystone();
+            initializedFromMovedWaystone = true;
         }
         if (!waystone.isValid()) {
             return;
         }
 
-        SableWaystoneCompat.updateWaystoneTrackingPoint(resultingLevel, waystone);
+        if (initializedFromMovedWaystone) {
+            SableWaystoneCompat.updateWaystoneTrackingPoint(resultingLevel, waystone);
+        }
         WaystoneSyncManager.sendWaystoneUpdateToAll(resultingLevel.getServer(), waystone);
     }
 }

@@ -2,10 +2,12 @@
   "required": true,
   "minVersion": "0.8",
   "package": "com.sshakusora.waystonessable.mixin",
+  "plugin": "com.sshakusora.waystonessable.mixin.WaystonesSableMixinPlugin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "SubLevelAssemblyHelperMixin",
     "WaystoneBlockBaseMixin",
-    "WaystoneBlockEntityBaseMixin"
+    "WaystoneBlockEntityBaseMixin",
   ],
   "client": [
     "client.ClientboundStartTrackingSubLevelPacketMixin",

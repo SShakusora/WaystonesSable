@@ -1,13 +1,17 @@
 package com.sshakusora.waystonessable.compat;
 
+import com.sshakusora.waystonessable.WaystonesSable;
 import com.sshakusora.waystonessable.network.SableTeleportPayload;
 import com.sshakusora.waystonessable.network.SubLevelGuardPayload;
+import dev.ryanhcode.sable.api.SubLevelAssemblyHelper;
 import dev.ryanhcode.sable.api.entity.EntitySubLevelUtil;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.companion.SableCompanion;
 import dev.ryanhcode.sable.companion.SubLevelAccess;
 import dev.ryanhcode.sable.companion.math.BoundingBox3dc;
+import dev.ryanhcode.sable.companion.math.BoundingBox3i;
+import dev.ryanhcode.sable.companion.math.BoundingBox3ic;
 import dev.ryanhcode.sable.mixinterface.entity.entity_sublevel_collision.EntityMovementExtension;
 import dev.ryanhcode.sable.mixinterface.entity.entity_sublevel_collision.LivingEntityMovementExtension;
 import dev.ryanhcode.sable.mixinterface.player_freezing.PlayerFreezeExtension;
@@ -22,7 +26,9 @@ import dev.ryanhcode.sable.sublevel.tracking_points.TrackingPoint;
 import net.blay09.mods.balm.api.Balm;
 import net.blay09.mods.waystones.api.Waystone;
 import net.blay09.mods.waystones.api.event.WaystoneTeleportEvent;
+import net.blay09.mods.waystones.block.WaystoneBlockBase;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.Position;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.server.MinecraftServer;
@@ -32,11 +38,12 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3d;
 
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
 
@@ -50,6 +57,166 @@ public final class SableWaystoneCompat {
 
     public static void setClientWaystoneSubLevelProvider(Predicate<Waystone> provider) {
         clientWaystoneSubLevelProvider = provider;
+    }
+
+    public static Optional<ServerSubLevel> assembleWaystone(ServerLevel level, BlockPos waystonePartPos) {
+        return collectWaystoneAssemblyBlocks(level, waystonePartPos)
+                .map(assembly -> SubLevelAssemblyHelper.assembleBlocks(
+                        level,
+                        assembly.anchor(),
+                        assembly.blocks(),
+                        assembly.bounds()
+                ));
+    }
+
+    public static Optional<WaystoneAssemblyBlocks> collectWaystoneAssemblyBlocks(Level level, BlockPos waystonePartPos) {
+        BlockState state = level.getBlockState(waystonePartPos);
+        if (!state.hasProperty(WaystoneBlockBase.HALF)) {
+            return Optional.empty();
+        }
+
+        BlockPos lowerPos = state.getValue(WaystoneBlockBase.HALF) == DoubleBlockHalf.LOWER
+                ? waystonePartPos
+                : waystonePartPos.below();
+        BlockPos upperPos = lowerPos.above();
+
+        BlockState lowerState = level.getBlockState(lowerPos);
+        BlockState upperState = level.getBlockState(upperPos);
+        if (!isWaystoneHalf(lowerState, DoubleBlockHalf.LOWER)
+                || !isWaystoneHalf(upperState, DoubleBlockHalf.UPPER)
+                || lowerState.getBlock() != upperState.getBlock()) {
+            return Optional.empty();
+        }
+
+        Set<BlockPos> blocks = new LinkedHashSet<>();
+        blocks.add(lowerPos);
+        blocks.add(upperPos);
+
+        BoundingBox3i bounds = new BoundingBox3i(
+                lowerPos.getX(),
+                lowerPos.getY(),
+                lowerPos.getZ(),
+                upperPos.getX(),
+                upperPos.getY(),
+                upperPos.getZ()
+        );
+        return Optional.of(new WaystoneAssemblyBlocks(lowerPos, blocks, bounds));
+    }
+
+    public static boolean isWaystoneAttachedTowards(BlockState state, Level level, BlockPos pos, Direction direction) {
+        if (direction == null || !state.hasProperty(WaystoneBlockBase.HALF)) {
+            return false;
+        }
+
+        DoubleBlockHalf half = state.getValue(WaystoneBlockBase.HALF);
+        if (half == DoubleBlockHalf.LOWER) {
+            if (direction != Direction.UP) {
+                return false;
+            }
+
+            BlockState upperState = level.getBlockState(pos.above());
+            return isWaystoneHalf(upperState, DoubleBlockHalf.UPPER)
+                    && state.getBlock() == upperState.getBlock();
+        }
+
+        if (direction != Direction.DOWN) {
+            return false;
+        }
+
+        BlockState lowerState = level.getBlockState(pos.below());
+        return isWaystoneHalf(lowerState, DoubleBlockHalf.LOWER)
+                && state.getBlock() == lowerState.getBlock();
+    }
+
+    public static ExpandedWaystoneAssembly expandWaystoneAssemblyBlocks(Level level, Iterable<BlockPos> blocks, BoundingBox3ic bounds) {
+        Set<BlockPos> expandedBlocks = new LinkedHashSet<>();
+        int originalBlockCount = 0;
+        for (BlockPos block : blocks) {
+            if (block == null) {
+                continue;
+            }
+            if (expandedBlocks.add(block.immutable())) {
+                originalBlockCount++;
+            }
+        }
+
+        int addedWaystoneParts = 0;
+        List<BlockPos> originalSnapshot = new ArrayList<>(expandedBlocks);
+        for (BlockPos block : originalSnapshot) {
+            Optional<WaystoneAssemblyBlocks> waystoneAssembly = collectWaystoneAssemblyBlocks(level, block);
+            if (waystoneAssembly.isEmpty()) {
+                continue;
+            }
+
+            for (BlockPos waystonePart : waystoneAssembly.get().blocks()) {
+                if (expandedBlocks.add(waystonePart.immutable())) {
+                    addedWaystoneParts++;
+                }
+            }
+        }
+
+        BoundingBox3i expandedBounds = expandBounds(bounds, expandedBlocks);
+        return new ExpandedWaystoneAssembly(
+                List.copyOf(expandedBlocks),
+                expandedBounds,
+                originalBlockCount,
+                addedWaystoneParts
+        );
+    }
+
+    private static BoundingBox3i expandBounds(BoundingBox3ic bounds, Set<BlockPos> blocks) {
+        if (bounds == null && blocks.isEmpty()) {
+            return new BoundingBox3i();
+        }
+
+        int minX;
+        int minY;
+        int minZ;
+        int maxX;
+        int maxY;
+        int maxZ;
+        if (bounds != null) {
+            minX = bounds.minX();
+            minY = bounds.minY();
+            minZ = bounds.minZ();
+            maxX = bounds.maxX();
+            maxY = bounds.maxY();
+            maxZ = bounds.maxZ();
+        } else {
+            BlockPos first = blocks.iterator().next();
+            minX = maxX = first.getX();
+            minY = maxY = first.getY();
+            minZ = maxZ = first.getZ();
+        }
+
+        for (BlockPos block : blocks) {
+            minX = Math.min(minX, block.getX());
+            minY = Math.min(minY, block.getY());
+            minZ = Math.min(minZ, block.getZ());
+            maxX = Math.max(maxX, block.getX());
+            maxY = Math.max(maxY, block.getY());
+            maxZ = Math.max(maxZ, block.getZ());
+        }
+        return new BoundingBox3i(minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    private static boolean isWaystoneHalf(BlockState state, DoubleBlockHalf half) {
+        return state.getBlock() instanceof WaystoneBlockBase
+                && state.hasProperty(WaystoneBlockBase.HALF)
+                && state.getValue(WaystoneBlockBase.HALF) == half;
+    }
+
+    public record WaystoneAssemblyBlocks(BlockPos anchor, Set<BlockPos> blocks, BoundingBox3i bounds) {
+    }
+
+    public record ExpandedWaystoneAssembly(List<BlockPos> blocks, BoundingBox3i bounds, int originalBlockCount, int addedWaystoneParts) {
+        public boolean changed() {
+            return addedWaystoneParts > 0;
+        }
+
+        public int expandedBlockCount() {
+            return blocks.size();
+        }
     }
 
     public static Vec3 projectToVisible(Level level, Vec3 pos) {
@@ -74,6 +241,32 @@ public final class SableWaystoneCompat {
 
     public static Vec3 getFeetStoragePos(Vec3 waystoneTargetPos) {
         return new Vec3(waystoneTargetPos.x, waystoneTargetPos.y - 0.5, waystoneTargetPos.z);
+    }
+
+    public static boolean isTrackedSubLevelTeleportTarget(ServerLevel level, Waystone waystone) {
+        if (!level.dimension().equals(waystone.getDimension())) {
+            return false;
+        }
+
+        if (SableCompanion.INSTANCE.getContaining(level, waystone.getPos()) != null) {
+            return true;
+        }
+
+        TrackingPoint trackingPoint = getTrackingPoint(level, waystone);
+        if (trackingPoint == null || !trackingPoint.inSubLevel()) {
+            return false;
+        }
+
+        ServerSubLevelContainer container = ServerSubLevelContainer.getContainer(level);
+        if (container == null) {
+            return false;
+        }
+
+        if (trackingPoint.subLevelID() != null && container.getSubLevel(trackingPoint.subLevelID()) != null) {
+            return true;
+        }
+
+        return resolveStoredSubLevelTarget(container, trackingPoint) != null;
     }
 
     public static boolean isWaystoneOnSubLevel(MinecraftServer server, Waystone waystone) {
@@ -112,8 +305,7 @@ public final class SableWaystoneCompat {
     }
 
     private static boolean hasTrackedSubLevel(ServerLevel level, Waystone waystone) {
-        TrackingPoint trackingPoint = SubLevelTrackingPointSavedData.getOrLoad(level)
-                .getTrackingPoint(waystone.getWaystoneUid());
+        TrackingPoint trackingPoint = getTrackingPoint(level, waystone);
         if (trackingPoint == null || !trackingPoint.inSubLevel()) {
             return false;
         }
@@ -131,7 +323,7 @@ public final class SableWaystoneCompat {
 
             HoldingSubLevel holdingSubLevel = container.getHoldingChunkMap()
                     .getHoldingSubLevel(trackingPoint.subLevelID());
-            if (holdingSubLevel != null) {
+            if (holdingSubLevel != null && matchesTrackingPoint(trackingPoint, holdingSubLevel.data())) {
                 return true;
             }
         }
@@ -146,17 +338,9 @@ public final class SableWaystoneCompat {
             return projectToVisible(level, localPos);
         }
 
-        TrackingPoint trackingPoint = SubLevelTrackingPointSavedData.getOrLoad(level)
-                .getTrackingPoint(waystone.getWaystoneUid());
-        if (trackingPoint != null && trackingPoint.inSubLevel() && trackingPoint.subLevelID() != null) {
-            ServerSubLevelContainer container = ServerSubLevelContainer.getContainer(level);
-            HoldingSubLevel holdingSubLevel = container != null
-                    ? container.getHoldingChunkMap().getHoldingSubLevel(trackingPoint.subLevelID())
-                    : null;
-            if (holdingSubLevel != null) {
-                Vector3d transformed = holdingSubLevel.data().pose().transformPosition(new Vector3d(localPos.x, localPos.y, localPos.z));
-                return new Vec3(transformed.x, transformed.y, transformed.z);
-            }
+        SubLevelData storedTarget = getTeleportTargetData(level, waystone);
+        if (storedTarget != null) {
+            return transformStoredTargetPos(storedTarget, localPos);
         }
 
         return localPos;
@@ -212,12 +396,56 @@ public final class SableWaystoneCompat {
                 return CompletableFuture.completedFuture(result);
             }
 
-            ServerSubLevelContainer container = ServerSubLevelContainer.getContainer(targetLevel);
-            if (container != null) {
-                container.getHoldingChunkMap().snatchAndLoad(storedTarget.pointer(), storedTarget.data().uuid());
-            }
+            tryLoadStoredSubLevelForTeleport(targetLevel, targetWaystone);
             return CompletableFuture.completedFuture(result);
         });
+    }
+
+    private static void tryLoadStoredSubLevelForTeleport(ServerLevel targetLevel, Waystone targetWaystone) {
+        ServerSubLevelContainer container = ServerSubLevelContainer.getContainer(targetLevel);
+        if (container == null) {
+            return;
+        }
+
+        TrackingPoint trackingPoint = getTrackingPoint(targetLevel, targetWaystone);
+        if (trackingPoint == null || !trackingPoint.inSubLevel()) {
+            return;
+        }
+
+        if (trackingPoint.subLevelID() != null && container.getSubLevel(trackingPoint.subLevelID()) != null) {
+            return;
+        }
+
+        StoredSubLevelTarget storedTarget = resolveStoredSubLevelTarget(container, trackingPoint);
+        if (storedTarget == null) {
+            return;
+        }
+
+        UUID subLevelId = storedTarget.data().uuid();
+        if (container.getSubLevel(subLevelId) != null) {
+            return;
+        }
+
+        HoldingSubLevel currentHolding = container.getHoldingChunkMap().getHoldingSubLevel(subLevelId);
+        if (currentHolding == null || currentHolding.pointer() == null || !matchesTrackingPoint(trackingPoint, currentHolding.data())) {
+            WaystonesSable.LOGGER.debug(
+                    "Skipping Sable snatch for target Waystone {} (sub-level {}) because the current holding map does not contain a matching stored sub-level; Waystones validity is handled through tracking data.",
+                    targetWaystone.getWaystoneUid(),
+                    subLevelId
+            );
+            return;
+        }
+
+        try {
+            container.getHoldingChunkMap().snatchAndLoad(currentHolding.pointer(), subLevelId);
+        } catch (RuntimeException exception) {
+            WaystonesSable.LOGGER.warn(
+                    "Failed to snatch Sable SubLevel {} for target Waystone {}; keeping teleport validation on tracking data.",
+                    subLevelId,
+                    targetWaystone.getWaystoneUid(),
+                    exception
+            );
+        }
     }
 
     public static long getPlotCoordinate(SubLevel subLevel) {
@@ -371,36 +599,52 @@ public final class SableWaystoneCompat {
             return null;
         }
 
-        TrackingPoint trackingPoint = SubLevelTrackingPointSavedData.getOrLoad(level)
-                .getTrackingPoint(waystone.getWaystoneUid());
+        TrackingPoint trackingPoint = getTrackingPoint(level, waystone);
+        return resolveStoredSubLevelTarget(container, trackingPoint);
+    }
+
+    private static StoredSubLevelTarget resolveStoredSubLevelTarget(ServerSubLevelContainer container, TrackingPoint trackingPoint) {
         if (trackingPoint == null || !trackingPoint.inSubLevel()) {
             return null;
         }
 
         if (trackingPoint.subLevelID() != null) {
             HoldingSubLevel holdingSubLevel = container.getHoldingChunkMap().getHoldingSubLevel(trackingPoint.subLevelID());
-            if (holdingSubLevel != null && holdingSubLevel.pointer() != null) {
-                return new StoredSubLevelTarget(holdingSubLevel.pointer(), holdingSubLevel.data());
+            if (holdingSubLevel != null && matchesTrackingPoint(trackingPoint, holdingSubLevel.data())) {
+                return new StoredSubLevelTarget(holdingSubLevel.pointer(), holdingSubLevel.data(), true);
             }
         }
 
         if (trackingPoint.lastSavedSubLevelPointer() != null) {
             var pointer = trackingPoint.lastSavedSubLevelPointer();
             SubLevelData data = container.getHoldingChunkMap().getStorage().attemptLoadSubLevel(pointer.chunkPos(), pointer.local());
-            if (data != null) {
-                return new StoredSubLevelTarget(pointer, data);
+            if (matchesTrackingPoint(trackingPoint, data)) {
+                return new StoredSubLevelTarget(pointer, data, false);
             }
         }
         return null;
     }
 
     private static SubLevelData getTeleportTargetData(ServerLevel level, Waystone waystone) {
-        if (waystone.getDimension() != level.dimension()) {
+        if (!level.dimension().equals(waystone.getDimension())) {
             return null;
         }
 
         StoredSubLevelTarget storedTarget = resolveStoredSubLevelTarget(level, waystone);
         return storedTarget != null ? storedTarget.data() : null;
+    }
+
+    private static TrackingPoint getTrackingPoint(ServerLevel level, Waystone waystone) {
+        return SubLevelTrackingPointSavedData.getOrLoad(level).getTrackingPoint(waystone.getWaystoneUid());
+    }
+
+    private static boolean matchesTrackingPoint(TrackingPoint trackingPoint, SubLevelData data) {
+        if (trackingPoint == null || data == null) {
+            return false;
+        }
+
+        UUID trackedSubLevelId = trackingPoint.subLevelID();
+        return trackedSubLevelId == null || trackedSubLevelId.equals(data.uuid());
     }
 
     private static Vec3 transformStoredTargetPos(SubLevelData data, Vec3 localPos) {
@@ -417,6 +661,6 @@ public final class SableWaystoneCompat {
         }
     }
 
-    private record StoredSubLevelTarget(GlobalSavedSubLevelPointer pointer, SubLevelData data) {
+    private record StoredSubLevelTarget(GlobalSavedSubLevelPointer pointer, SubLevelData data, boolean presentInHoldingChunk) {
     }
 }
