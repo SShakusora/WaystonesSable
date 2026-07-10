@@ -155,7 +155,7 @@ dependencies {
             transitive = false
         }
     }
-    implementation("net.blay09.mods:waystones-neoforge:21.1.36-SNAPSHOT") {
+    implementation("net.blay09.mods:waystones-neoforge:21.1.36+1.21.1") {
         changing = true
     }
     if (includeCreateRuntime) {

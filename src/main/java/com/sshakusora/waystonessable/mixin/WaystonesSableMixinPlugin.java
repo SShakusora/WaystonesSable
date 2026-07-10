@@ -15,10 +15,10 @@ import java.util.Set;
 public final class WaystonesSableMixinPlugin implements IMixinConfigPlugin {
     private static final String SUB_LEVEL_ASSEMBLY_HELPER_MIXIN =
             "com.sshakusora.waystonessable.mixin.SubLevelAssemblyHelperMixin";
-    private static final String SABLE_SNAPSHOT_DUAL_PACKET_MIXIN =
-            "com.sshakusora.waystonessable.mixin.client.ClientboundSableSnapshotDualPacketMixin";
-    private static final String WAYSTONE_IMPL_MIXIN =
-            "com.sshakusora.waystonessable.mixin.WaystoneImplMixin";
+    private static final String CLIENTBOUND_START_TRACKING_SUB_LEVEL_PACKET_MIXIN =
+            "com.sshakusora.waystonessable.mixin.client.ClientboundStartTrackingSubLevelPacketMixin";
+    private static final String CLIENTBOUND_STOP_TRACKING_SUB_LEVEL_PACKET_MIXIN =
+            "com.sshakusora.waystonessable.mixin.client.ClientboundStopTrackingSubLevelPacketMixin";
 
     private static final String CREATE_BLOCK_MOVEMENT_CHECKS =
             "com.simibubi.create.api.contraption.BlockMovementChecks";
@@ -33,40 +33,44 @@ public final class WaystonesSableMixinPlugin implements IMixinConfigPlugin {
     private static final String REGISTER_ATTACHED_CHECK_DESCRIPTOR =
             "(" + CREATE_ATTACHED_CHECK_DESCRIPTOR + ")V";
 
-    private static final String SABLE_SNAPSHOT_DUAL_PACKET =
-            "dev.ryanhcode.sable.network.packets.ClientboundSableSnapshotDualPacket";
-    private static final String SABLE_PACKET_RECEIVE_MODE =
-            "dev.ryanhcode.sable.network.packets.PacketReceiveMode";
-    private static final String SABLE_SNAPSHOT_HANDLE_DESCRIPTOR =
-            "(Lnet/minecraft/world/level/Level;Ldev/ryanhcode/sable/network/packets/PacketReceiveMode;)V";
+    private static final String SUB_LEVEL_ASSEMBLY_HELPER =
+            "dev.ryanhcode.sable.api.SubLevelAssemblyHelper";
+    private static final String ASSEMBLE_BLOCKS_DESCRIPTOR =
+            "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Ljava/lang/Iterable;"
+                    + "Ldev/ryanhcode/sable/companion/math/BoundingBox3ic;)"
+                    + "Ldev/ryanhcode/sable/sublevel/ServerSubLevel;";
 
-    private static final String WAYSTONE_IMPL =
-            "net.blay09.mods.waystones.core.WaystoneImpl";
-    private static final String WAYSTONE_IS_VALID_IN_LEVEL_DESCRIPTOR =
-            "(Lnet/minecraft/server/level/ServerLevel;)Z";
+    private static final String CLIENTBOUND_START_TRACKING_SUB_LEVEL_PACKET =
+            "dev.ryanhcode.sable.network.packets.tcp.ClientboundStartTrackingSubLevelPacket";
+    private static final String CLIENTBOUND_STOP_TRACKING_SUB_LEVEL_PACKET =
+            "dev.ryanhcode.sable.network.packets.tcp.ClientboundStopTrackingSubLevelPacket";
+    private static final String PACKET_HANDLE_DESCRIPTOR =
+            "(Lfoundry/veil/api/network/handler/PacketContext;)V";
+    private static final String PLOT_COORDINATE_DESCRIPTOR = "()J";
 
     private static final String FORCE_SABLE_ASSEMBLY_MIXIN_PROPERTY =
             "waystonessable.forceSableAssemblyMixin";
     private static final String DISABLE_SABLE_ASSEMBLY_MIXIN_PROPERTY =
             "waystonessable.disableSableAssemblyMixin";
-    private static final String DISABLE_SABLE_SNAPSHOT_GUARD_MIXIN_PROPERTY =
-            "waystonessable.disableSableSnapshotGuardMixin";
-    private static final String DISABLE_WAYSTONE_VALIDITY_MIXIN_PROPERTY =
-            "waystonessable.disableWaystoneValidityMixin";
+    private static final String DISABLE_SABLE_TRACKING_PACKET_MIXINS_PROPERTY =
+            "waystonessable.disableSableTrackingPacketMixins";
 
     private static final boolean CREATE_ATTACHED_CHECK_API_COMPATIBLE = isCreateAttachedCheckApiCompatible();
-    private static final boolean SABLE_SNAPSHOT_PACKET_COMPATIBLE = isSableSnapshotPacketCompatible();
-    private static final boolean WAYSTONE_VALIDITY_API_COMPATIBLE = isWaystoneValidityApiCompatible();
+    private static final boolean SABLE_ASSEMBLY_HELPER_COMPATIBLE = isSableAssemblyHelperCompatible();
+    private static final boolean START_TRACKING_PACKET_COMPATIBLE =
+            isSableTrackingPacketCompatible(CLIENTBOUND_START_TRACKING_SUB_LEVEL_PACKET);
+    private static final boolean STOP_TRACKING_PACKET_COMPATIBLE =
+            isSableTrackingPacketCompatible(CLIENTBOUND_STOP_TRACKING_SUB_LEVEL_PACKET);
 
     @Override
     public void onLoad(String mixinPackage) {
-        log("loaded: Create attached-check API bytecode compatible=" + CREATE_ATTACHED_CHECK_API_COMPATIBLE
-                + ", Sable snapshot packet bytecode compatible=" + SABLE_SNAPSHOT_PACKET_COMPATIBLE
-                + ", Waystone validity API bytecode compatible=" + WAYSTONE_VALIDITY_API_COMPATIBLE
-                + ", forceFallback=" + Boolean.getBoolean(FORCE_SABLE_ASSEMBLY_MIXIN_PROPERTY)
-                + ", disableFallback=" + Boolean.getBoolean(DISABLE_SABLE_ASSEMBLY_MIXIN_PROPERTY)
-                + ", disableSnapshotGuard=" + Boolean.getBoolean(DISABLE_SABLE_SNAPSHOT_GUARD_MIXIN_PROPERTY)
-                + ", disableWaystoneValidityGuard=" + Boolean.getBoolean(DISABLE_WAYSTONE_VALIDITY_MIXIN_PROPERTY));
+        log("loaded: Create attached-check API compatible=" + CREATE_ATTACHED_CHECK_API_COMPATIBLE
+                + ", Sable assembleBlocks compatible=" + SABLE_ASSEMBLY_HELPER_COMPATIBLE
+                + ", Sable start-tracking packet compatible=" + START_TRACKING_PACKET_COMPATIBLE
+                + ", Sable stop-tracking packet compatible=" + STOP_TRACKING_PACKET_COMPATIBLE
+                + ", forceAssemblyMixin=" + Boolean.getBoolean(FORCE_SABLE_ASSEMBLY_MIXIN_PROPERTY)
+                + ", disableAssemblyMixin=" + Boolean.getBoolean(DISABLE_SABLE_ASSEMBLY_MIXIN_PROPERTY)
+                + ", disableTrackingPacketMixins=" + Boolean.getBoolean(DISABLE_SABLE_TRACKING_PACKET_MIXINS_PROPERTY));
     }
 
     @Override
@@ -77,27 +81,25 @@ public final class WaystonesSableMixinPlugin implements IMixinConfigPlugin {
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
         if (SUB_LEVEL_ASSEMBLY_HELPER_MIXIN.equals(mixinClassName)) {
-            boolean applyFallbackMixin = shouldApplySableAssemblyFallbackMixin();
-            log((applyFallbackMixin ? "Applying" : "Skipping")
-                    + " Sable assembleBlocks fallback mixin " + mixinClassName
-                    + " because Create attached-check API bytecode compatible=" + CREATE_ATTACHED_CHECK_API_COMPATIBLE);
-            return applyFallbackMixin;
+            boolean apply = shouldApplySableAssemblyFallbackMixin();
+            log((apply ? "Applying" : "Skipping") + " " + mixinClassName
+                    + " (Create attached-check API compatible=" + CREATE_ATTACHED_CHECK_API_COMPATIBLE
+                    + ", Sable assembleBlocks compatible=" + SABLE_ASSEMBLY_HELPER_COMPATIBLE + ")");
+            return apply;
         }
 
-        if (SABLE_SNAPSHOT_DUAL_PACKET_MIXIN.equals(mixinClassName)) {
-            boolean applySnapshotGuardMixin = shouldApplySableSnapshotGuardMixin();
-            log((applySnapshotGuardMixin ? "Applying" : "Skipping")
-                    + " Sable snapshot guard mixin " + mixinClassName
-                    + " because Sable snapshot packet bytecode compatible=" + SABLE_SNAPSHOT_PACKET_COMPATIBLE);
-            return applySnapshotGuardMixin;
+        if (CLIENTBOUND_START_TRACKING_SUB_LEVEL_PACKET_MIXIN.equals(mixinClassName)) {
+            boolean apply = shouldApplySableTrackingPacketMixin(START_TRACKING_PACKET_COMPATIBLE);
+            log((apply ? "Applying" : "Skipping") + " " + mixinClassName
+                    + " (target packet compatible=" + START_TRACKING_PACKET_COMPATIBLE + ")");
+            return apply;
         }
 
-        if (WAYSTONE_IMPL_MIXIN.equals(mixinClassName)) {
-            boolean applyWaystoneValidityGuardMixin = shouldApplyWaystoneValidityGuardMixin();
-            log((applyWaystoneValidityGuardMixin ? "Applying" : "Skipping")
-                    + " Waystone validity guard mixin " + mixinClassName
-                    + " because WaystoneImpl#isValidInLevel bytecode compatible=" + WAYSTONE_VALIDITY_API_COMPATIBLE);
-            return applyWaystoneValidityGuardMixin;
+        if (CLIENTBOUND_STOP_TRACKING_SUB_LEVEL_PACKET_MIXIN.equals(mixinClassName)) {
+            boolean apply = shouldApplySableTrackingPacketMixin(STOP_TRACKING_PACKET_COMPATIBLE);
+            log((apply ? "Applying" : "Skipping") + " " + mixinClassName
+                    + " (target packet compatible=" + STOP_TRACKING_PACKET_COMPATIBLE + ")");
+            return apply;
         }
 
         return true;
@@ -121,6 +123,9 @@ public final class WaystonesSableMixinPlugin implements IMixinConfigPlugin {
     }
 
     private static boolean shouldApplySableAssemblyFallbackMixin() {
+        if (!SABLE_ASSEMBLY_HELPER_COMPATIBLE) {
+            return false;
+        }
         if (Boolean.getBoolean(FORCE_SABLE_ASSEMBLY_MIXIN_PROPERTY)) {
             return true;
         }
@@ -130,12 +135,8 @@ public final class WaystonesSableMixinPlugin implements IMixinConfigPlugin {
         return !CREATE_ATTACHED_CHECK_API_COMPATIBLE;
     }
 
-    private static boolean shouldApplySableSnapshotGuardMixin() {
-        return SABLE_SNAPSHOT_PACKET_COMPATIBLE && !Boolean.getBoolean(DISABLE_SABLE_SNAPSHOT_GUARD_MIXIN_PROPERTY);
-    }
-
-    private static boolean shouldApplyWaystoneValidityGuardMixin() {
-        return WAYSTONE_VALIDITY_API_COMPATIBLE && !Boolean.getBoolean(DISABLE_WAYSTONE_VALIDITY_MIXIN_PROPERTY);
+    private static boolean shouldApplySableTrackingPacketMixin(boolean targetCompatible) {
+        return targetCompatible && !Boolean.getBoolean(DISABLE_SABLE_TRACKING_PACKET_MIXINS_PROPERTY);
     }
 
     private static boolean isCreateAttachedCheckApiCompatible() {
@@ -151,36 +152,29 @@ public final class WaystonesSableMixinPlugin implements IMixinConfigPlugin {
                     && hasField(checkResult, "SUCCESS", CREATE_CHECK_RESULT_DESCRIPTOR)
                     && hasField(checkResult, "PASS", CREATE_CHECK_RESULT_DESCRIPTOR);
         } catch (IOException | RuntimeException exception) {
-            log("Create attached-check API bytecode probe failed; enabling Sable fallback mixin. Cause: "
-                    + exception.getClass().getName() + ": " + exception.getMessage());
+            logProbeFailure("Create attached-check API", exception);
             return false;
         }
     }
 
-    private static boolean isSableSnapshotPacketCompatible() {
+    private static boolean isSableAssemblyHelperCompatible() {
         try {
-            ClassNode snapshotPacket = readClassNode(SABLE_SNAPSHOT_DUAL_PACKET);
-            ClassNode packetReceiveMode = readClassNode(SABLE_PACKET_RECEIVE_MODE);
-
-            return snapshotPacket != null
-                    && packetReceiveMode != null
-                    && hasField(snapshotPacket, "entries", "Ljava/util/List;")
-                    && hasMethod(snapshotPacket, "handleClient", SABLE_SNAPSHOT_HANDLE_DESCRIPTOR);
+            ClassNode assemblyHelper = readClassNode(SUB_LEVEL_ASSEMBLY_HELPER);
+            return assemblyHelper != null && hasMethod(assemblyHelper, "assembleBlocks", ASSEMBLE_BLOCKS_DESCRIPTOR);
         } catch (IOException | RuntimeException exception) {
-            log("Sable snapshot packet bytecode probe failed; disabling snapshot guard mixin. Cause: "
-                    + exception.getClass().getName() + ": " + exception.getMessage());
+            logProbeFailure("Sable assembleBlocks API", exception);
             return false;
         }
     }
 
-    private static boolean isWaystoneValidityApiCompatible() {
+    private static boolean isSableTrackingPacketCompatible(String className) {
         try {
-            ClassNode waystoneImpl = readClassNode(WAYSTONE_IMPL);
-            return waystoneImpl != null
-                    && hasMethod(waystoneImpl, "isValidInLevel", WAYSTONE_IS_VALID_IN_LEVEL_DESCRIPTOR);
+            ClassNode packet = readClassNode(className);
+            return packet != null
+                    && hasMethod(packet, "handle", PACKET_HANDLE_DESCRIPTOR)
+                    && hasMethod(packet, "plotCoordinate", PLOT_COORDINATE_DESCRIPTOR);
         } catch (IOException | RuntimeException exception) {
-            log("Waystones validity API bytecode probe failed; disabling Waystone validity guard mixin. Cause: "
-                    + exception.getClass().getName() + ": " + exception.getMessage());
+            logProbeFailure(className, exception);
             return false;
         }
     }
@@ -229,6 +223,11 @@ public final class WaystonesSableMixinPlugin implements IMixinConfigPlugin {
             }
         }
         return false;
+    }
+
+    private static void logProbeFailure(String probeName, Exception exception) {
+        log(probeName + " bytecode probe failed. Cause: "
+                + exception.getClass().getName() + ": " + exception.getMessage());
     }
 
     private static void log(String message) {

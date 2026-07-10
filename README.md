@@ -32,10 +32,10 @@ A compatibility mod that bridges **[Waystones](https://www.curseforge.com/minecr
 | Dependency | Version      | Required |
 |------------|--------------|----------|
 | Minecraft | 1.21.1       | ✅ |
-| NeoForge | \>= 21.1.219 | ✅ |
-| [Waystones](https://www.curseforge.com/minecraft/mc-mods/waystones) | \>= 21.1.29  | ✅ |
-| [Sable](https://www.curseforge.com/minecraft/mc-mods/sable) | \>= 1.1.0    | ✅ |
-| [Create](https://www.curseforge.com/minecraft/mc-mods/create) | \>= 6.0.9    | ✅ |
+| NeoForge | \>= 21.1.228 | ✅ |
+| [Waystones](https://www.curseforge.com/minecraft/mc-mods/waystones) | \>= 21.1.36  | ✅ |
+| [Sable](https://www.curseforge.com/minecraft/mc-mods/sable) | \>= 2.0.3    | ✅ |
+| [Create](https://www.curseforge.com/minecraft/mc-mods/create) | \>= 6.0.10   | ✅ |
 
 > **Note:** This is a **server-side + client-side** mod. Both sides must have it installed for full functionality.
 
