@@ -16,12 +16,40 @@ public final class SableWaystoneEventHandler {
     }
 
     public static void register() {
+        Balm.getEvents().onEvent(WaystoneTeleportEvent.Pre.class, SableWaystoneEventHandler::onPreTeleport);
         Balm.getEvents().onEvent(WaystoneTeleportEvent.Prepare.class, SableWaystoneEventHandler::onPrepareTeleport);
         Balm.getEvents().onEvent(WaystoneTeleportEntityEvent.Pre.class, SableWaystoneEventHandler::onTeleportEntityPre);
         Balm.getEvents().onEvent(WaystoneTeleportEntityEvent.Post.class, SableWaystoneEventHandler::onTeleportEntityPost);
         Balm.getEvents().onEvent(CollectDefaultWaystoneGroupsEvent.class, SableWaystoneEventHandler::onCollectDefaultGroups);
         Balm.getEvents().onEvent(CollectDynamicWaystoneGroupsEvent.class, SableWaystoneEventHandler::onCollectDynamicGroups);
         Balm.getEvents().onEvent(BuildWaystoneSelectionMenuEvent.class, SableWaystoneEventHandler::onBuildWaystoneSelectionMenu);
+    }
+
+    private static void onPreTeleport(WaystoneTeleportEvent.Pre event) {
+        WaystoneTeleportContext context = event.getContext();
+        MinecraftServer server = context.getEntity().getServer();
+        if (server == null) {
+            return;
+        }
+
+        Waystone targetWaystone = context.getTargetWaystone();
+        ServerLevel targetLevel = server.getLevel(targetWaystone.getDimension());
+        if (!(targetWaystone instanceof SubLevelWaystone)
+                && !(targetWaystone instanceof TrackedTargetWaystone)
+                && targetLevel != null
+                && SableWaystoneCompat.isTrackedSubLevelTeleportTarget(targetLevel, targetWaystone)) {
+            context.setTargetWaystone(new TrackedTargetWaystone(targetWaystone));
+        }
+
+        context.getFromWaystone().ifPresent(sourceWaystone -> {
+            ServerLevel sourceLevel = server.getLevel(sourceWaystone.getDimension());
+            if (sourceLevel == null || !SableWaystoneCompat.isTrackedSubLevelTeleportTarget(sourceLevel, sourceWaystone)) {
+                return;
+            }
+
+            BlockPos visiblePos = BlockPos.containing(SableWaystoneCompat.getVisibleWaystonePos(sourceLevel, sourceWaystone));
+            context.setFromWaystone(new VisibleSourceWaystone(sourceWaystone, visiblePos));
+        });
     }
 
     private static void onPrepareTeleport(WaystoneTeleportEvent.Prepare event) {
@@ -132,6 +160,43 @@ public final class SableWaystoneEventHandler {
             }
 
             return SableWaystoneCompat.isTrackedSubLevelTeleportTarget(level, this);
+        }
+    }
+
+    private static final class TrackedTargetWaystone extends WaystoneDelegate {
+
+        private TrackedTargetWaystone(Waystone delegate) {
+            super(delegate);
+        }
+
+        @Override
+        public boolean isValidInLevel(ServerLevel level) {
+            if (super.isValidInLevel(level)) {
+                return true;
+            }
+            return SableWaystoneCompat.isTrackedSubLevelTeleportTarget(level, delegate);
+        }
+    }
+
+    private static final class VisibleSourceWaystone extends WaystoneDelegate {
+        private final BlockPos visiblePos;
+
+        private VisibleSourceWaystone(Waystone delegate, BlockPos visiblePos) {
+            super(delegate);
+            this.visiblePos = visiblePos;
+        }
+
+        @Override
+        public BlockPos getPos() {
+            return visiblePos;
+        }
+
+        @Override
+        public boolean isValidInLevel(ServerLevel level) {
+            if (super.isValidInLevel(level)) {
+                return true;
+            }
+            return SableWaystoneCompat.isTrackedSubLevelTeleportTarget(level, delegate);
         }
     }
 }

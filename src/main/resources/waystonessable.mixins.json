@@ -7,7 +7,7 @@
   "mixins": [
     "SubLevelAssemblyHelperMixin",
     "WaystoneBlockBaseMixin",
-    "WaystoneBlockEntityBaseMixin",
+    "WaystoneBlockEntityBaseMixin"
   ],
   "client": [
     "client.ClientboundStartTrackingSubLevelPacketMixin",

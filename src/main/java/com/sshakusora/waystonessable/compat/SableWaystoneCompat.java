@@ -426,10 +426,10 @@ public final class SableWaystoneCompat {
             return;
         }
 
-        HoldingSubLevel currentHolding = container.getHoldingChunkMap().getHoldingSubLevel(subLevelId);
-        if (currentHolding == null || currentHolding.pointer() == null || !matchesTrackingPoint(trackingPoint, currentHolding.data())) {
+        GlobalSavedSubLevelPointer pointer = storedTarget.pointer();
+        if (pointer == null) {
             WaystonesSable.LOGGER.debug(
-                    "Skipping Sable snatch for target Waystone {} (sub-level {}) because the current holding map does not contain a matching stored sub-level; Waystones validity is handled through tracking data.",
+                    "Skipping Sable snatch for target Waystone {} (sub-level {}) because it has not been persisted yet.",
                     targetWaystone.getWaystoneUid(),
                     subLevelId
             );
@@ -437,12 +437,21 @@ public final class SableWaystoneCompat {
         }
 
         try {
-            container.getHoldingChunkMap().snatchAndLoad(currentHolding.pointer(), subLevelId);
+            container.getHoldingChunkMap().snatchAndLoad(pointer, subLevelId);
+            if (container.getSubLevel(subLevelId) == null) {
+                WaystonesSable.LOGGER.warn(
+                        "Sable did not load SubLevel {} for target Waystone {} from pointer {}.",
+                        subLevelId,
+                        targetWaystone.getWaystoneUid(),
+                        pointer
+                );
+            }
         } catch (RuntimeException exception) {
             WaystonesSable.LOGGER.warn(
-                    "Failed to snatch Sable SubLevel {} for target Waystone {}; keeping teleport validation on tracking data.",
+                    "Failed to load Sable SubLevel {} for target Waystone {} from pointer {}.",
                     subLevelId,
                     targetWaystone.getWaystoneUid(),
+                    pointer,
                     exception
             );
         }
@@ -611,7 +620,7 @@ public final class SableWaystoneCompat {
         if (trackingPoint.subLevelID() != null) {
             HoldingSubLevel holdingSubLevel = container.getHoldingChunkMap().getHoldingSubLevel(trackingPoint.subLevelID());
             if (holdingSubLevel != null && matchesTrackingPoint(trackingPoint, holdingSubLevel.data())) {
-                return new StoredSubLevelTarget(holdingSubLevel.pointer(), holdingSubLevel.data(), true);
+                return new StoredSubLevelTarget(holdingSubLevel.pointer(), holdingSubLevel.data());
             }
         }
 
@@ -619,7 +628,7 @@ public final class SableWaystoneCompat {
             var pointer = trackingPoint.lastSavedSubLevelPointer();
             SubLevelData data = container.getHoldingChunkMap().getStorage().attemptLoadSubLevel(pointer.chunkPos(), pointer.local());
             if (matchesTrackingPoint(trackingPoint, data)) {
-                return new StoredSubLevelTarget(pointer, data, false);
+                return new StoredSubLevelTarget(pointer, data);
             }
         }
         return null;
@@ -661,6 +670,6 @@ public final class SableWaystoneCompat {
         }
     }
 
-    private record StoredSubLevelTarget(GlobalSavedSubLevelPointer pointer, SubLevelData data, boolean presentInHoldingChunk) {
+    private record StoredSubLevelTarget(GlobalSavedSubLevelPointer pointer, SubLevelData data) {
     }
 }

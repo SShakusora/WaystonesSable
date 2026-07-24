@@ -16,6 +16,7 @@ import net.blay09.mods.waystones.api.Waystone;
 import net.blay09.mods.waystones.api.WaystoneOrigin;
 import net.blay09.mods.waystones.block.ModBlocks;
 import net.blay09.mods.waystones.block.WaystoneBlockBase;
+import net.blay09.mods.waystones.block.entity.WarpPlateBlockEntity;
 import net.blay09.mods.waystones.block.entity.WaystoneBlockEntityBase;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -69,6 +70,34 @@ final class SubLevelWaystoneTestSupport {
         subLevel.updateLastPose();
         trackSubLevelWaystone(helper.getLevel(), subLevel, waystone);
         return new SubLevelWaystone(subLevel, accessor, lowerEntity, upperEntity, waystone);
+    }
+
+    static SubLevelWarpPlate createSubLevelWarpPlate(GameTestHelper helper, ServerSubLevelContainer container, Vector3d position, String name) {
+        Pose3d pose = new Pose3d();
+        pose.position().set(position);
+
+        ServerSubLevel subLevel = (ServerSubLevel) container.allocateNewSubLevel(pose);
+        LevelPlot plot = subLevel.getPlot();
+        plot.newEmptyChunk(plot.getCenterChunk());
+        EmbeddedPlotLevelAccessor accessor = plot.getEmbeddedLevelAccessor();
+
+        BlockState state = ModBlocks.warpPlate.defaultBlockState()
+                .setValue(WaystoneBlockBase.ORIGIN, WaystoneOrigin.PLAYER);
+        accessor.setBlock(BlockPos.ZERO, state, 3, 512);
+
+        if (!(accessor.getBlockEntity(BlockPos.ZERO) instanceof WarpPlateBlockEntity blockEntity)) {
+            throw new IllegalStateException("Expected WarpPlateBlockEntity at " + BlockPos.ZERO);
+        }
+        blockEntity.initializeWaystone(accessor, null, WaystoneOrigin.PLAYER);
+
+        Waystone waystone = blockEntity.getWaystone();
+        if (waystone instanceof MutableWaystone mutableWaystone) {
+            mutableWaystone.setName(Component.literal(name));
+        }
+
+        subLevel.updateLastPose();
+        trackSubLevelWaystone(helper.getLevel(), subLevel, waystone);
+        return new SubLevelWarpPlate(subLevel, accessor, blockEntity, waystone);
     }
 
     static SubLevelWaystone createSubLevelWaystone(GameTestHelper helper, ServerSubLevelContainer container, int index, int spacing, String prefix) {
@@ -155,6 +184,14 @@ final class SubLevelWaystoneTestSupport {
             EmbeddedPlotLevelAccessor accessor,
             WaystoneBlockEntityBase lowerEntity,
             WaystoneBlockEntityBase upperEntity,
+            Waystone waystone
+    ) {
+    }
+
+    record SubLevelWarpPlate(
+            ServerSubLevel subLevel,
+            EmbeddedPlotLevelAccessor accessor,
+            WarpPlateBlockEntity blockEntity,
             Waystone waystone
     ) {
     }
