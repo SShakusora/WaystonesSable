@@ -150,6 +150,7 @@ final class SubLevelWaystoneTestSupport {
                 localPoint,
                 globalPlaceholder
         ));
+        SableWaystoneCompat.updateWaystoneTrackingPoint(level, waystone);
     }
 
     static void clearSubLevelPlot(ServerSubLevelContainer container, ServerSubLevel subLevel) {

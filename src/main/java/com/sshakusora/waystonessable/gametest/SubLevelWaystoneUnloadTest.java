@@ -1,18 +1,22 @@
 package com.sshakusora.waystonessable.gametest;
 
-import com.mojang.datafixers.util.Either;
 import com.sshakusora.waystonessable.WaystonesSable;
 import com.sshakusora.waystonessable.compat.SableWaystoneCompat;
+import com.sshakusora.waystonessable.compat.WaystonePositionSnapshotSavedData;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.neoforge.gametest.SableTestHelper;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.storage.SubLevelRemovalReason;
 import dev.ryanhcode.sable.sublevel.storage.holding.GlobalSavedSubLevelPointer;
+import dev.ryanhcode.sable.sublevel.tracking_points.SubLevelTrackingPointSavedData;
+import net.blay09.mods.balm.api.Balm;
+import net.blay09.mods.waystones.api.MutablePersonalizedWaystone;
 import net.blay09.mods.waystones.api.Waystone;
 import net.blay09.mods.waystones.api.WaystoneTeleportContext;
 import net.blay09.mods.waystones.api.WaystonesAPI;
 import net.blay09.mods.waystones.api.error.WaystoneTeleportError;
 import net.blay09.mods.waystones.api.event.WaystoneTeleportEvent;
+import net.blay09.mods.waystones.menu.WaystoneSelectionListBuilder;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -87,8 +91,173 @@ public final class SubLevelWaystoneUnloadTest {
                 return;
             }
 
+            List<Waystone> sourceWaystones = scenarios.stream()
+                    .map(SubLevelWaystoneTestSupport.SubLevelWaystone::waystone)
+                    .toList();
+            List<MutablePersonalizedWaystone> menuWaystones = new WaystoneSelectionListBuilder(
+                    FakePlayerFactory.getMinecraft(helper.getLevel())
+            )
+                    .withWaystones(sourceWaystones)
+                    .skipSortingIndexUpdate()
+                    .build();
+            long visibleSubLevelWaystones = menuWaystones.stream()
+                    .filter(candidate -> sourceWaystones.stream().anyMatch(source ->
+                            source.getWaystoneUid().equals(candidate.getWaystoneUid())))
+                    .filter(candidate -> !SableWaystoneCompat.isInternalPlotPosition(
+                            helper.getLevel(),
+                            candidate.getPos().getCenter()
+                    ))
+                    .count();
+            if (visibleSubLevelWaystones != MEDIUM_BATCH) {
+                helper.fail("Snapshot-backed selection menu exposed only " + visibleSubLevelWaystones
+                        + " of " + MEDIUM_BATCH + " unloaded SubLevel waystones without raw plot coordinates");
+                return;
+            }
+
             for (SubLevelWaystoneTestSupport.SubLevelWaystone scenario : scenarios) {
                 SubLevelWaystoneTestSupport.clearSubLevelPlot(container, scenario.subLevel());
+            }
+            helper.succeed();
+        });
+    }
+
+    @GameTest(template = "gravity", batch = "disk_stored_menu", timeoutTicks = 1200)
+    public static void selectionMenuUsesSnapshotWithoutRestoringDiskStoredSubLevel(GameTestHelper helper) {
+        helper.runAfterDelay(5, () -> {
+            ServerSubLevelContainer container = SubLevelWaystoneTestSupport.requireContainer(helper);
+            Vector3d visiblePosition = SableTestHelper.absolutePosition(helper, new Vector3d(18.5, 7.0, 18.5));
+            SubLevelWaystoneTestSupport.SubLevelWaystone scenario = SubLevelWaystoneTestSupport.createSubLevelWaystone(
+                    helper,
+                    container,
+                    visiblePosition,
+                    "disk_stored_menu_snapshot"
+            );
+            Waystone waystone = scenario.waystone();
+            UUID subLevelId = scenario.subLevel().getUniqueId();
+            BlockPos expectedVisiblePos = BlockPos.containing(
+                    SableWaystoneCompat.getVisibleWaystonePos(helper.getLevel(), waystone)
+            );
+
+            storeAndEvictSubLevel(helper, container, scenario.subLevel(), waystone);
+            if (container.getSubLevel(subLevelId) != null) {
+                helper.fail("Menu snapshot setup failed: disk-stored SubLevel remained loaded");
+                return;
+            }
+
+            List<MutablePersonalizedWaystone> menuWaystones = new WaystoneSelectionListBuilder(
+                    FakePlayerFactory.getMinecraft(helper.getLevel())
+            )
+                    .withWaystones(List.of(waystone))
+                    .skipSortingIndexUpdate()
+                    .build();
+            MutablePersonalizedWaystone menuWaystone = menuWaystones.stream()
+                    .filter(candidate -> candidate.getWaystoneUid().equals(waystone.getWaystoneUid()))
+                    .findFirst()
+                    .orElse(null);
+            if (menuWaystone == null) {
+                helper.fail("Selection menu dropped the disk-stored SubLevel Waystone despite its position snapshot");
+                return;
+            }
+            if (!expectedVisiblePos.equals(menuWaystone.getPos())) {
+                helper.fail("Selection menu used " + menuWaystone.getPos()
+                        + " instead of the cached visible position " + expectedVisiblePos);
+                return;
+            }
+            if (container.getSubLevel(subLevelId) != null) {
+                helper.fail("Building the selection menu restored a disk-stored SubLevel");
+                return;
+            }
+
+            SubLevelWaystoneTestSupport.clearSubLevelPlot(container, scenario.subLevel());
+            helper.succeed();
+        });
+    }
+
+    @GameTest(template = "gravity", batch = "legacy_disk_stored_menu", timeoutTicks = 12000)
+    public static void selectionMenuMigratesMissingSnapshotWithoutDiskRead(GameTestHelper helper) {
+        helper.runAfterDelay(5, () -> {
+            ServerSubLevelContainer container = SubLevelWaystoneTestSupport.requireContainer(helper);
+            Vector3d visiblePosition = SableTestHelper.absolutePosition(helper, new Vector3d(8.5, 6.0, 8.5));
+            SubLevelWaystoneTestSupport.SubLevelWaystone scenario = SubLevelWaystoneTestSupport.createSubLevelWaystone(
+                    helper,
+                    container,
+                    visiblePosition,
+                    "legacy_disk_stored_menu"
+            );
+            Waystone waystone = scenario.waystone();
+            UUID subLevelId = scenario.subLevel().getUniqueId();
+            Vec3 expected = SableWaystoneCompat.getVisibleTeleportPos(
+                    helper.getLevel(),
+                    Vec3.atCenterOf(waystone.getPos()),
+                    waystone
+            );
+
+            storeAndEvictSubLevel(helper, container, scenario.subLevel(), waystone);
+            WaystonePositionSnapshotSavedData.getOrLoad(helper.getLevel()).remove(waystone.getWaystoneUid());
+            if (container.getSubLevel(subLevelId) != null) {
+                helper.fail("Legacy menu setup failed: disk-stored SubLevel remained loaded");
+                return;
+            }
+
+            List<MutablePersonalizedWaystone> menuWaystones = new WaystoneSelectionListBuilder(
+                    FakePlayerFactory.getMinecraft(helper.getLevel())
+            )
+                    .withWaystones(List.of(waystone))
+                    .skipSortingIndexUpdate()
+                    .build();
+            MutablePersonalizedWaystone menuWaystone = menuWaystones.stream()
+                    .filter(candidate -> candidate.getWaystoneUid().equals(waystone.getWaystoneUid()))
+                    .findFirst()
+                    .orElse(null);
+            if (menuWaystone == null) {
+                helper.fail("Legacy disk-stored Waystone disappeared because it had no position snapshot");
+                return;
+            }
+            if (SableWaystoneCompat.isInternalPlotPosition(helper.getLevel(), menuWaystone.getPos().getCenter())) {
+                helper.fail("Legacy disk-stored Waystone exposed its reserved plot coordinate in the menu");
+                return;
+            }
+            if (container.getSubLevel(subLevelId) != null) {
+                helper.fail("Legacy menu fallback restored a disk-stored SubLevel while building the menu");
+                return;
+            }
+
+            ArmorStand entity = new ArmorStand(EntityType.ARMOR_STAND, helper.getLevel());
+            BlockPos startPos = helper.absolutePos(new BlockPos(2, 3, 2));
+            entity.moveTo(startPos.getX() + 0.5, startPos.getY(), startPos.getZ() + 0.5);
+            helper.getLevel().addFreshEntity(entity);
+            WaystoneTeleportContext context = WaystonesAPI.createUnboundTeleportContext(entity, menuWaystone);
+            Set<ChunkPos> chunkPositions = new LinkedHashSet<>();
+            chunkPositions.add(new ChunkPos(menuWaystone.getPos()));
+            WaystoneTeleportEvent.Prepare prepareEvent = new WaystoneTeleportEvent.Prepare(context, chunkPositions);
+            Balm.getEvents().fireEvent(prepareEvent);
+            if (!(container.getSubLevel(subLevelId) instanceof ServerSubLevel loadedSubLevel)) {
+                helper.fail("Legacy menu Prepare event did not restore its disk-stored SubLevel");
+                entity.discard();
+                return;
+            }
+            if (!waystone.getPos().equals(context.getTargetWaystone().getPos())) {
+                helper.fail("Legacy menu Prepare event kept the approximate display coordinate as its storage target");
+                entity.discard();
+                return;
+            }
+            if (!prepareEvent.getChunkPositions().isEmpty()) {
+                helper.fail("Legacy menu Prepare event retained display-only chunk requests after synchronous restore");
+                entity.discard();
+                return;
+            }
+
+            Vec3 resolved = SableWaystoneCompat.resolveVisibleTeleportPos(
+                    helper.getLevel(),
+                    Vec3.atCenterOf(context.getTargetWaystone().getPos()),
+                    context.getTargetWaystone()
+            ).orElse(null);
+            SubLevelWaystoneTestSupport.clearSubLevelPlot(container, loadedSubLevel);
+            entity.discard();
+            if (resolved == null || resolved.distanceToSqr(expected) > 0.01) {
+                helper.fail("Legacy menu Prepare event resolved the wrong visible destination: actual="
+                        + resolved + ", expected=" + expected);
+                return;
             }
             helper.succeed();
         });
@@ -121,17 +290,12 @@ public final class SubLevelWaystoneUnloadTest {
             WaystoneTeleportEvent.Prepare event = new WaystoneTeleportEvent.Prepare(context, chunkPositions);
             SableWaystoneCompat.prepareStoredSubLevelForTeleport(event);
 
-            if (event.getPreparationTasks().isEmpty()) {
-                helper.fail("Prepare event did not register a task for the unloaded SubLevel target");
+            if (!(container.getSubLevel(subLevelId) instanceof ServerSubLevel)) {
+                helper.fail("Prepare event did not restore the stored SubLevel before Waystones starts loading chunks");
                 return;
             }
-
-            Either<Void, WaystoneTeleportError> result = Either.left(null);
-            for (var preparationTask : event.getPreparationTasks()) {
-                result = preparationTask.apply(result).join();
-            }
-            if (result.right().isPresent()) {
-                helper.fail("Prepare task returned a teleport error: " + result.right().get());
+            if (!event.getPreparationTasks().isEmpty()) {
+                helper.fail("Successful synchronous SubLevel restore unexpectedly registered a delayed preparation task");
                 return;
             }
 
@@ -148,6 +312,68 @@ public final class SubLevelWaystoneUnloadTest {
                 SubLevelWaystoneTestSupport.clearSubLevelPlot(container, loadedSubLevel);
                 helper.succeed();
             });
+        });
+    }
+
+    @GameTest(template = "gravity", batch = "orphaned_plot_target", timeoutTicks = 12000)
+    public static void orphanedPlotTargetFailsWithoutLoadingReservedChunks(GameTestHelper helper) {
+        helper.runAfterDelay(5, () -> {
+            ServerSubLevelContainer container = SubLevelWaystoneTestSupport.requireContainer(helper);
+            Vector3d visiblePosition = SableTestHelper.absolutePosition(helper, new Vector3d(8.5, 6.0, 8.5));
+            SubLevelWaystoneTestSupport.SubLevelWaystone scenario = SubLevelWaystoneTestSupport.createSubLevelWaystone(
+                    helper,
+                    container,
+                    visiblePosition,
+                    "orphaned_plot_target"
+            );
+            Waystone waystone = scenario.waystone();
+            UUID subLevelId = scenario.subLevel().getUniqueId();
+            storeAndEvictSubLevel(helper, container, scenario.subLevel(), waystone);
+            SubLevelTrackingPointSavedData.getOrLoad(helper.getLevel()).removeTrackingPoint(waystone.getWaystoneUid());
+            if (SableWaystoneCompat.resolveVisibleTeleportPos(
+                    helper.getLevel(),
+                    Vec3.atCenterOf(waystone.getPos()),
+                    waystone
+            ).isPresent()) {
+                helper.fail("Orphaned reserved-plot coordinate was exposed as a usable teleport target");
+                return;
+            }
+
+            ArmorStand entity = new ArmorStand(EntityType.ARMOR_STAND, helper.getLevel());
+            BlockPos startPos = helper.absolutePos(new BlockPos(2, 3, 2));
+            Vec3 expectedPosition = Vec3.atBottomCenterOf(startPos);
+            entity.moveTo(expectedPosition.x, expectedPosition.y, expectedPosition.z);
+            helper.getLevel().addFreshEntity(entity);
+
+            WaystoneTeleportContext context = WaystonesAPI.createUnboundTeleportContext(entity, waystone);
+            WaystonesAPI.tryTeleportAsync(context).whenComplete((result, throwable) ->
+                    helper.getLevel().getServer().execute(() -> {
+                        try {
+                            if (throwable != null) {
+                                helper.fail("Orphaned plot teleport completed exceptionally instead of failing safely: " + throwable);
+                                return;
+                            }
+                            if (!(result.right().orElse(null) instanceof WaystoneTeleportError.DestinationOutOfBounds)) {
+                                helper.fail("Orphaned plot teleport returned the wrong result: " + result);
+                                return;
+                            }
+                            if (entity.position().distanceToSqr(expectedPosition) > 0.01) {
+                                helper.fail("Orphaned plot teleport moved the entity despite being rejected: " + entity.position());
+                                return;
+                            }
+                            if (container.getSubLevel(subLevelId) != null) {
+                                helper.fail("Rejected orphaned target unexpectedly restored or loaded its reserved plot");
+                                return;
+                            }
+                            helper.succeed();
+                        } catch (Throwable callbackError) {
+                            helper.fail("Orphaned plot teleport verification failed unexpectedly: " + callbackError);
+                        } finally {
+                            SubLevelWaystoneTestSupport.clearSubLevelPlot(container, scenario.subLevel());
+                            entity.discard();
+                        }
+                    })
+            );
         });
     }
 
