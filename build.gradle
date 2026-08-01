@@ -186,6 +186,8 @@ dependencies {
     compileOnly "dev.engine-room.flywheel:flywheel-neoforge-api-1.21.1:1.0.6"
     compileOnly "net.blay09.mods:balm-neoforge:21.0.59+1.21.1"
     runtimeOnly "net.blay09.mods:balm-neoforge:21.0.59+1.21.1"
+//    runtimeOnly "curse.maven:xaeros-world-map-317780:8449921"
+//    runtimeOnly "curse.maven:xaeros-minimap-263420:8449819"
     // Example mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
     // compileOnly "mezz.jei:jei-${mc_version}-common-api:${jei_version}"

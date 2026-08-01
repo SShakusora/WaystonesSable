@@ -25,7 +25,10 @@ import dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelData;
 import dev.ryanhcode.sable.sublevel.tracking_points.SubLevelTrackingPointSavedData;
 import dev.ryanhcode.sable.sublevel.tracking_points.TrackingPoint;
 import net.blay09.mods.balm.api.Balm;
+import net.blay09.mods.waystones.api.TeleportDestination;
 import net.blay09.mods.waystones.api.Waystone;
+import net.blay09.mods.waystones.api.WaystoneDelegate;
+import net.blay09.mods.waystones.api.WaystoneTypes;
 import net.blay09.mods.waystones.api.error.WaystoneTeleportError;
 import net.blay09.mods.waystones.api.event.WaystoneTeleportEvent;
 import net.blay09.mods.waystones.block.WaystoneBlockBase;
@@ -59,6 +62,48 @@ public final class SableWaystoneCompat {
 
     public static void setClientWaystoneSubLevelProvider(Predicate<Waystone> provider) {
         clientWaystoneSubLevelProvider = provider;
+    }
+
+    public static boolean isTwinboundFeather(Waystone waystone) {
+        return WaystoneTypes.TWINBOUND_FEATHER.equals(waystone.getWaystoneType());
+    }
+
+    /**
+     * Twinbound Feather targets retain the target player's visible position. When that player is in a
+     * Sable SubLevel, Waystones must instead preload the backing plot position and let the normal
+     * teleport hooks project it back to the visible world.
+     */
+    public static Optional<Waystone> resolveTwinboundSubLevelTarget(Waystone targetWaystone, ServerPlayer targetPlayer) {
+        if (!isTwinboundFeather(targetWaystone)
+                || !targetWaystone.getDimension().equals(targetPlayer.level().dimension())
+                || !(SableCompanion.INSTANCE.getTrackingSubLevel(targetPlayer) instanceof ServerSubLevel targetSubLevel)) {
+            return Optional.empty();
+        }
+
+        Vector3d storagePosition = targetSubLevel.logicalPose().transformPositionInverse(new Vector3d(targetPlayer.getX(), targetPlayer.getY(), targetPlayer.getZ()));
+        BlockPos storagePos = BlockPos.containing(storagePosition.x, storagePosition.y, storagePosition.z);
+        if (!isInternalPlotPosition(targetPlayer.level(), storagePos.getCenter())) {
+            WaystonesSable.LOGGER.warn(
+                    "Ignoring Twinbound Feather target {} because its Sable storage position {} is outside the plot grid.",
+                    targetWaystone.getWaystoneUid(),
+                    storagePos
+            );
+            return Optional.empty();
+        }
+
+        return Optional.of(new TwinboundSubLevelWaystone(targetWaystone, storagePos));
+    }
+
+    public static void useLoadedSubLevelChunks(WaystoneTeleportEvent.Prepare event, Waystone targetWaystone) {
+        MinecraftServer server = Balm.getHooks().getServer();
+        ServerLevel targetLevel = server != null ? server.getLevel(targetWaystone.getDimension()) : null;
+        if (targetLevel != null
+                && SableCompanion.INSTANCE.getContaining(targetLevel, targetWaystone.getPos()) instanceof ServerSubLevel) {
+            // Sable owns plot chunks and returns them synchronously from ServerChunkCache. Asking
+            // Waystones to preload them through the vanilla chunk manager can otherwise generate
+            // chunks at a projected, non-plot coordinate.
+            event.getChunkPositions().clear();
+        }
     }
 
     public static Optional<ServerSubLevel> assembleWaystone(ServerLevel level, BlockPos waystonePartPos) {
@@ -482,17 +527,7 @@ public final class SableWaystoneCompat {
     }
 
     public static void useLoadedStorageWaystoneChunks(WaystoneTeleportEvent.Prepare event, Waystone storageWaystone) {
-        MinecraftServer server = Balm.getHooks().getServer();
-        ServerLevel targetLevel = server != null ? server.getLevel(storageWaystone.getDimension()) : null;
-        if (targetLevel == null
-                || !(SableCompanion.INSTANCE.getContaining(targetLevel, storageWaystone.getPos()) instanceof ServerSubLevel)) {
-            return;
-        }
-
-        // The menu position is display-only and may be approximate during legacy migration. snatchAndLoad
-        // has already fully reconstructed the SubLevel and its chunks, so Waystones must not generate or
-        // wait on a second set of chunks for that temporary coordinate.
-        event.getChunkPositions().clear();
+        useLoadedSubLevelChunks(event, storageWaystone);
     }
 
     private static boolean tryLoadStoredSubLevelForTeleport(
@@ -808,6 +843,29 @@ public final class SableWaystoneCompat {
     private static Vec3 transformStoredTargetPos(SubLevelData data, Vec3 localPos) {
         Vector3d transformed = data.pose().transformPosition(new Vector3d(localPos.x, localPos.y, localPos.z));
         return new Vec3(transformed.x, transformed.y, transformed.z);
+    }
+
+    private static final class TwinboundSubLevelWaystone extends WaystoneDelegate {
+        private final BlockPos storagePos;
+
+        private TwinboundSubLevelWaystone(Waystone delegate, BlockPos storagePos) {
+            super(delegate);
+            this.storagePos = storagePos;
+        }
+
+        @Override
+        public BlockPos getPos() {
+            return storagePos;
+        }
+
+        @Override
+        public Optional<TeleportDestination> resolveDestination(ServerLevel level) {
+            return Optional.of(new TeleportDestination(
+                    level,
+                    new Vec3(storagePos.getX() + 0.5, storagePos.getY() + 0.5, storagePos.getZ() + 0.5),
+                    Direction.NORTH
+            ));
+        }
     }
 
     private static void resetEntityMotion(Entity entity) {
