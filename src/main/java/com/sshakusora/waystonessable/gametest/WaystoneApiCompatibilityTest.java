@@ -4,8 +4,11 @@ import com.sshakusora.waystonessable.WaystonesSable;
 import com.sshakusora.waystonessable.compat.SableWaystoneCompat;
 import com.sshakusora.waystonessable.compat.SableWaystoneGroups;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
+import dev.ryanhcode.sable.mixinterface.entity.entity_sublevel_collision.EntityMovementExtension;
 import net.blay09.mods.waystones.api.MutablePersonalizedWaystone;
 import net.blay09.mods.waystones.api.Waystone;
+import net.blay09.mods.waystones.api.WaystoneDelegate;
+import net.blay09.mods.waystones.api.WaystoneTypes;
 import net.blay09.mods.waystones.api.WaystonesAPI;
 import net.blay09.mods.waystones.menu.WaystoneSelectionListBuilder;
 import net.minecraft.core.BlockPos;
@@ -113,6 +116,70 @@ public final class WaystoneApiCompatibilityTest {
                 return;
             }
 
+            SubLevelWaystoneTestSupport.clearSubLevelPlot(container, scenario.subLevel());
+            helper.succeed();
+        });
+    }
+
+    @GameTest(template = "gravity", timeoutTicks = 400)
+    public static void twinboundTargetUsesPlotCoordinateForTrackedPlayer(GameTestHelper helper) {
+        helper.runAfterDelay(5, () -> {
+            ServerSubLevelContainer container = SubLevelWaystoneTestSupport.requireContainer(helper);
+            SubLevelWaystoneTestSupport.SubLevelWaystone scenario = SubLevelWaystoneTestSupport.createSubLevelWaystone(
+                    helper,
+                    container,
+                    new Vector3d(36.5, 76.0, 36.5),
+                    "twinbound_target"
+            );
+            ServerPlayer targetPlayer = FakePlayerFactory.getMinecraft(helper.getLevel());
+            BlockPos storagePos = scenario.waystone().getPos();
+            Vector3d visiblePos = scenario.subLevel().logicalPose().transformPosition(new Vector3d(
+                    storagePos.getX() + 0.5,
+                    storagePos.getY(),
+                    storagePos.getZ() + 0.5
+            ));
+            targetPlayer.moveTo(visiblePos.x, visiblePos.y, visiblePos.z);
+            ((EntityMovementExtension) targetPlayer).sable$setTrackingSubLevel(scenario.subLevel());
+
+            Waystone twinboundTarget = new WaystoneDelegate(scenario.waystone()) {
+                @Override
+                public java.util.UUID getWaystoneUid() {
+                    return targetPlayer.getUUID();
+                }
+
+                @Override
+                public net.minecraft.resources.ResourceLocation getWaystoneType() {
+                    return WaystoneTypes.TWINBOUND_FEATHER;
+                }
+
+                @Override
+                public BlockPos getPos() {
+                    return targetPlayer.blockPosition();
+                }
+            };
+
+            Waystone resolvedTarget = SableWaystoneCompat.resolveTwinboundSubLevelTarget(twinboundTarget, targetPlayer)
+                    .orElse(null);
+            if (resolvedTarget == null) {
+                helper.fail("Twinbound target did not resolve for a player tracked by a SubLevel");
+                return;
+            }
+            if (!storagePos.equals(resolvedTarget.getPos())) {
+                helper.fail("Twinbound target used " + resolvedTarget.getPos() + " instead of backing plot position " + storagePos);
+                return;
+            }
+
+            Vec3 resolvedVisiblePos = SableWaystoneCompat.resolveVisibleTeleportPos(
+                    helper.getLevel(),
+                    resolvedTarget.resolveDestination(helper.getLevel()).orElseThrow().location(),
+                    resolvedTarget
+            ).orElse(null);
+            if (resolvedVisiblePos == null || resolvedVisiblePos.distanceToSqr(targetPlayer.position()) > 0.01) {
+                helper.fail("Twinbound target did not resolve back to the tracked player's visible position");
+                return;
+            }
+
+            ((EntityMovementExtension) targetPlayer).sable$setTrackingSubLevel(null);
             SubLevelWaystoneTestSupport.clearSubLevelPlot(container, scenario.subLevel());
             helper.succeed();
         });

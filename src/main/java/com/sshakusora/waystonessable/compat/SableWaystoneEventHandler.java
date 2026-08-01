@@ -7,6 +7,7 @@ import net.blay09.mods.waystones.api.event.*;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
@@ -55,14 +56,22 @@ public final class SableWaystoneEventHandler {
 
         Waystone targetWaystone = context.getTargetWaystone();
         ServerLevel targetLevel = server.getLevel(targetWaystone.getDimension());
-        if (targetLevel != null) {
-            SableWaystoneCompat.refreshWaystoneTrackingPointIfLoaded(targetLevel, targetWaystone);
-        }
-        if (!(targetWaystone instanceof SubLevelWaystone)
+        if (SableWaystoneCompat.isTwinboundFeather(targetWaystone)) {
+            ServerPlayer targetPlayer = server.getPlayerList().getPlayer(targetWaystone.getWaystoneUid());
+            if (targetPlayer != null) {
+                SableWaystoneCompat.resolveTwinboundSubLevelTarget(targetWaystone, targetPlayer)
+                        .ifPresent(context::setTargetWaystone);
+            }
+        } else {
+            if (targetLevel != null) {
+                SableWaystoneCompat.refreshWaystoneTrackingPointIfLoaded(targetLevel, targetWaystone);
+            }
+            if (!(targetWaystone instanceof SubLevelWaystone)
                 && !(targetWaystone instanceof TrackedTargetWaystone)
                 && targetLevel != null
                 && SableWaystoneCompat.isTrackedSubLevelTeleportTarget(targetLevel, targetWaystone)) {
-            context.setTargetWaystone(new TrackedTargetWaystone(targetWaystone));
+                context.setTargetWaystone(new TrackedTargetWaystone(targetWaystone));
+            }
         }
 
         context.getFromWaystone().ifPresent(sourceWaystone -> {
@@ -84,6 +93,11 @@ public final class SableWaystoneEventHandler {
 
     private static void onPrepareTeleport(WaystoneTeleportEvent.Prepare event) {
         Waystone targetWaystone = event.getContext().getTargetWaystone();
+        if (SableWaystoneCompat.isTwinboundFeather(targetWaystone)) {
+            SableWaystoneCompat.useLoadedSubLevelChunks(event, targetWaystone);
+            return;
+        }
+
         SableWaystoneCompat.prepareStoredSubLevelForTeleport(event);
         if (targetWaystone instanceof SubLevelWaystone subLevelWaystone) {
             // The menu wrapper carries only a display position. Destination resolution must use the
