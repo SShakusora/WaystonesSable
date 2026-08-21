@@ -19,6 +19,10 @@ public final class WaystonesSableMixinPlugin implements IMixinConfigPlugin {
             "com.sshakusora.waystonessable.mixin.client.ClientboundStartTrackingSubLevelPacketMixin";
     private static final String CLIENTBOUND_STOP_TRACKING_SUB_LEVEL_PACKET_MIXIN =
             "com.sshakusora.waystonessable.mixin.client.ClientboundStopTrackingSubLevelPacketMixin";
+    private static final String HOLDING_SUB_LEVEL_MIXIN =
+            "com.sshakusora.waystonessable.mixin.HoldingSubLevelMixin";
+    private static final String SUB_LEVEL_HOLDING_CHUNK_MAP_MIXIN =
+            "com.sshakusora.waystonessable.mixin.SubLevelHoldingChunkMapMixin";
 
     private static final String CREATE_BLOCK_MOVEMENT_CHECKS =
             "com.simibubi.create.api.contraption.BlockMovementChecks";
@@ -48,6 +52,16 @@ public final class WaystonesSableMixinPlugin implements IMixinConfigPlugin {
             "(Lfoundry/veil/api/network/handler/PacketContext;)V";
     private static final String PLOT_COORDINATE_DESCRIPTOR = "()J";
 
+    private static final String HOLDING_SUB_LEVEL =
+            "dev.ryanhcode.sable.sublevel.storage.HoldingSubLevel";
+    private static final String GLOBAL_SAVED_SUB_LEVEL_POINTER =
+            "dev.ryanhcode.sable.sublevel.storage.holding.GlobalSavedSubLevelPointer";
+    private static final String SET_POINTER_DESCRIPTOR =
+            "(L" + GLOBAL_SAVED_SUB_LEVEL_POINTER.replace('.', '/') + ";)V";
+    private static final String SUB_LEVEL_HOLDING_CHUNK_MAP =
+            "dev.ryanhcode.sable.sublevel.storage.holding.SubLevelHoldingChunkMap";
+    private static final String SAVE_ALL_DESCRIPTOR = "()V";
+
     private static final String FORCE_SABLE_ASSEMBLY_MIXIN_PROPERTY =
             "waystonessable.forceSableAssemblyMixin";
     private static final String DISABLE_SABLE_ASSEMBLY_MIXIN_PROPERTY =
@@ -61,6 +75,7 @@ public final class WaystonesSableMixinPlugin implements IMixinConfigPlugin {
             isSableTrackingPacketCompatible(CLIENTBOUND_START_TRACKING_SUB_LEVEL_PACKET);
     private static final boolean STOP_TRACKING_PACKET_COMPATIBLE =
             isSableTrackingPacketCompatible(CLIENTBOUND_STOP_TRACKING_SUB_LEVEL_PACKET);
+    private static final boolean SABLE_POINTER_SYNC_COMPATIBLE = isSablePointerSyncCompatible();
 
     @Override
     public void onLoad(String mixinPackage) {
@@ -68,6 +83,7 @@ public final class WaystonesSableMixinPlugin implements IMixinConfigPlugin {
                 + ", Sable assembleBlocks compatible=" + SABLE_ASSEMBLY_HELPER_COMPATIBLE
                 + ", Sable start-tracking packet compatible=" + START_TRACKING_PACKET_COMPATIBLE
                 + ", Sable stop-tracking packet compatible=" + STOP_TRACKING_PACKET_COMPATIBLE
+                + ", Sable pointer-sync API compatible=" + SABLE_POINTER_SYNC_COMPATIBLE
                 + ", forceAssemblyMixin=" + Boolean.getBoolean(FORCE_SABLE_ASSEMBLY_MIXIN_PROPERTY)
                 + ", disableAssemblyMixin=" + Boolean.getBoolean(DISABLE_SABLE_ASSEMBLY_MIXIN_PROPERTY)
                 + ", disableTrackingPacketMixins=" + Boolean.getBoolean(DISABLE_SABLE_TRACKING_PACKET_MIXINS_PROPERTY));
@@ -100,6 +116,13 @@ public final class WaystonesSableMixinPlugin implements IMixinConfigPlugin {
             log((apply ? "Applying" : "Skipping") + " " + mixinClassName
                     + " (target packet compatible=" + STOP_TRACKING_PACKET_COMPATIBLE + ")");
             return apply;
+        }
+
+        if (HOLDING_SUB_LEVEL_MIXIN.equals(mixinClassName)
+                || SUB_LEVEL_HOLDING_CHUNK_MAP_MIXIN.equals(mixinClassName)) {
+            log((SABLE_POINTER_SYNC_COMPATIBLE ? "Applying" : "Skipping") + " " + mixinClassName
+                    + " (Sable pointer-sync API compatible=" + SABLE_POINTER_SYNC_COMPATIBLE + ")");
+            return SABLE_POINTER_SYNC_COMPATIBLE;
         }
 
         return true;
@@ -175,6 +198,20 @@ public final class WaystonesSableMixinPlugin implements IMixinConfigPlugin {
                     && hasMethod(packet, "plotCoordinate", PLOT_COORDINATE_DESCRIPTOR);
         } catch (IOException | RuntimeException exception) {
             logProbeFailure(className, exception);
+            return false;
+        }
+    }
+
+    private static boolean isSablePointerSyncCompatible() {
+        try {
+            ClassNode holdingSubLevel = readClassNode(HOLDING_SUB_LEVEL);
+            ClassNode holdingChunkMap = readClassNode(SUB_LEVEL_HOLDING_CHUNK_MAP);
+            return holdingSubLevel != null
+                    && holdingChunkMap != null
+                    && hasMethod(holdingSubLevel, "setPointer", SET_POINTER_DESCRIPTOR)
+                    && hasMethod(holdingChunkMap, "saveAll", SAVE_ALL_DESCRIPTOR);
+        } catch (IOException | RuntimeException exception) {
+            logProbeFailure("Sable pointer-sync API", exception);
             return false;
         }
     }

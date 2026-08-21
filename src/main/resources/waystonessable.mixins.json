@@ -5,7 +5,9 @@
   "plugin": "com.sshakusora.waystonessable.mixin.WaystonesSableMixinPlugin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "HoldingSubLevelMixin",
     "SubLevelAssemblyHelperMixin",
+    "SubLevelHoldingChunkMapMixin",
     "WaystoneBlockBaseMixin",
     "WaystoneBlockEntityBaseMixin"
   ],

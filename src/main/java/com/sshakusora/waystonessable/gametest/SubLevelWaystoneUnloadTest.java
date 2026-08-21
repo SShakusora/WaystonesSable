@@ -9,6 +9,7 @@ import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.storage.SubLevelRemovalReason;
 import dev.ryanhcode.sable.sublevel.storage.holding.GlobalSavedSubLevelPointer;
 import dev.ryanhcode.sable.sublevel.tracking_points.SubLevelTrackingPointSavedData;
+import dev.ryanhcode.sable.sublevel.tracking_points.TrackingPoint;
 import net.blay09.mods.balm.api.Balm;
 import net.blay09.mods.waystones.api.MutablePersonalizedWaystone;
 import net.blay09.mods.waystones.api.Waystone;
@@ -312,6 +313,60 @@ public final class SubLevelWaystoneUnloadTest {
                 SubLevelWaystoneTestSupport.clearSubLevelPlot(container, loadedSubLevel);
                 helper.succeed();
             });
+        });
+    }
+
+    @GameTest(template = "gravity", batch = "disk_stored_prepare", timeoutTicks = 800)
+    public static void firstPersistencePointerIsSyncedBeforeTeleportRestore(GameTestHelper helper) {
+        helper.runAfterDelay(5, () -> {
+            ServerSubLevelContainer container = SubLevelWaystoneTestSupport.requireContainer(helper);
+            SubLevelWaystoneTestSupport.SubLevelWaystone scenario = SubLevelWaystoneTestSupport.createSubLevelWaystone(
+                    helper,
+                    container,
+                    new Vector3d(18.5, 78.0, 18.5),
+                    "first_persistence_pointer"
+            );
+            Waystone waystone = scenario.waystone();
+            UUID subLevelId = scenario.subLevel().getUniqueId();
+
+            if (scenario.subLevel().getLastSerializationPointer() != null) {
+                helper.fail("First-persistence setup unexpectedly already had a Sable storage pointer");
+                return;
+            }
+
+            ChunkPos holdingChunkPos = new ChunkPos(waystone.getPos());
+            container.getHoldingChunkMap().moveToUnloaded(scenario.subLevel(), holdingChunkPos);
+            container.getHoldingChunkMap().updateChunkStatus(holdingChunkPos, false);
+            container.getHoldingChunkMap().saveAll();
+
+            TrackingPoint trackingPoint = SubLevelTrackingPointSavedData.getOrLoad(helper.getLevel())
+                    .getTrackingPoint(waystone.getWaystoneUid());
+            if (trackingPoint == null || trackingPoint.lastSavedSubLevelPointer() == null) {
+                helper.fail("Sable assigned a first-persistence pointer, but WaystonesSable did not sync it");
+                return;
+            }
+            if (container.getSubLevel(subLevelId) != null
+                    || container.getHoldingChunkMap().getHoldingSubLevel(subLevelId) != null) {
+                helper.fail("First-persistence setup did not evict the SubLevel from memory");
+                return;
+            }
+
+            WaystoneTeleportContext context = WaystonesAPI.createUnboundTeleportContext(
+                    FakePlayerFactory.getMinecraft(helper.getLevel()),
+                    waystone
+            );
+            Set<ChunkPos> chunkPositions = new LinkedHashSet<>();
+            WaystoneTeleportEvent.Prepare event = new WaystoneTeleportEvent.Prepare(context, chunkPositions);
+            SableWaystoneCompat.prepareStoredSubLevelForTeleport(event);
+
+            if (!(container.getSubLevel(subLevelId) instanceof ServerSubLevel)) {
+                helper.fail("Synced first-persistence pointer did not restore the SubLevel during Prepare");
+                return;
+            }
+
+            ServerSubLevel loadedSubLevel = (ServerSubLevel) container.getSubLevel(subLevelId);
+            SubLevelWaystoneTestSupport.clearSubLevelPlot(container, loadedSubLevel);
+            helper.succeed();
         });
     }
 
