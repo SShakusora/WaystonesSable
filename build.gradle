@@ -67,6 +67,7 @@ base {
 }
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+java.withSourcesJar()
 
 neoForge {
     // Specify the version of NeoForge to use.
@@ -242,15 +243,56 @@ sourceSets.main.resources.srcDir generateModMetadata
 neoForge.ideSyncTask generateModMetadata
 
 // Example configuration to allow publishing using the maven-publish plugin
+tasks.register('publishSnapshot') {
+    group = 'publishing'
+    description = 'Publish SNAPSHOT with a fixed (non-timestamped) filename, overwriting the previous snapshot.'
+    dependsOn 'jar', 'sourcesJar', 'generatePomFileForMavenJavaPublication'
+
+    doLast {
+        def nexusUrl = (project.findProperty('nexusUrl') ?: 'https://maven.sshakusora.com/repository/waystones-sable').toString()
+        def user = project.findProperty('nexusUsername') ?: 'sshakusora'
+        def pass = project.findProperty('nexusPassword') ?: ''
+        def groupPath = project.group.replace('.', '/')
+        def mavenVersion = "${minecraft_version}-${project.version}"
+        def fileName = "${mod_id}-${mavenVersion}"
+        def baseDir = "${nexusUrl}/${groupPath}/${mod_id}/${mavenVersion}"
+        def auth = java.util.Base64.getEncoder().encodeToString("${user}:${pass}".getBytes('UTF-8'))
+
+        def upload = { File f, String name ->
+            def conn = (HttpURLConnection) new URL("${baseDir}/${name}").openConnection()
+            conn.requestMethod = 'PUT'
+            conn.doOutput = true
+            conn.setRequestProperty('Authorization', "Basic ${auth}")
+            conn.setRequestProperty('Content-Type', name.endsWith('.pom') ? 'application/xml' : 'application/java-archive')
+            f.withInputStream { conn.outputStream.withStream { out -> out << it } }
+            def code = conn.responseCode
+            if (code >= 300) throw new GradleException("Upload failed (${code}) for ${name}")
+            println "Uploaded ${name} (${code})"
+        }
+
+        upload(tasks.named('jar').get().archiveFile.get().asFile, "${fileName}.jar")
+        upload(tasks.named('sourcesJar').get().archiveFile.get().asFile, "${fileName}-sources.jar")
+        upload(layout.buildDirectory.file('publications/mavenJava/pom-default.xml').get().asFile, "${fileName}.pom")
+    }
+}
+
 publishing {
     publications {
         register('mavenJava', MavenPublication) {
             from components.java
+            groupId = project.group
+            artifactId = mod_id
+            version = "${minecraft_version}-${project.version}"
         }
     }
     repositories {
         maven {
-            url "file://${project.projectDir}/repo"
+            name = 'Nexus'
+            url = uri(project.findProperty('nexusUrl') ?: 'https://maven.sshakusora.com/repository/waystones-sable')
+            credentials {
+                username = project.findProperty('nexusUsername') ?: 'sshakusora'
+                password = project.findProperty('nexusPassword') ?: ''
+            }
         }
     }
 }
