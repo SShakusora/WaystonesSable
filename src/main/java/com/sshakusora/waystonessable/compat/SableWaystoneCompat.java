@@ -21,6 +21,8 @@ import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.SubLevel;
 import dev.ryanhcode.sable.sublevel.storage.HoldingSubLevel;
 import dev.ryanhcode.sable.sublevel.storage.holding.GlobalSavedSubLevelPointer;
+import dev.ryanhcode.sable.sublevel.storage.holding.SubLevelHoldingChunk;
+import dev.ryanhcode.sable.sublevel.storage.holding.SubLevelHoldingChunkMap;
 import dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelData;
 import dev.ryanhcode.sable.sublevel.tracking_points.SubLevelTrackingPointSavedData;
 import dev.ryanhcode.sable.sublevel.tracking_points.TrackingPoint;
@@ -579,9 +581,26 @@ public final class SableWaystoneCompat {
             return true;
         }
 
+        if (holdingSubLevel == null
+                && container.getHoldingChunkMap() instanceof SubLevelHoldingChunkMap holdingMap
+                && holdingMap instanceof SubLevelHoldingChunkMapAccessor accessor) {
+            SubLevelHoldingChunk holdingChunk = accessor.waystonesSable$getOrLoadHoldingChunk(pointer.chunkPos(), false);
+            if (holdingChunk != null && !holdingChunk.getSubLevelPointers().contains(pointer.local())
+                    && tryRestoreStoredSubLevelFromPointer(container, pointer, subLevelId)
+                    && container.getSubLevel(subLevelId) instanceof ServerSubLevel restoredSubLevel) {
+                updateVisiblePositionSnapshot(targetLevel, targetWaystone, restoredSubLevel, trackingPoint);
+                return true;
+            }
+        }
+
         try {
             container.getHoldingChunkMap().snatchAndLoad(pointer, subLevelId);
             if (!(container.getSubLevel(subLevelId) instanceof ServerSubLevel loadedSubLevel)) {
+                if (tryRestoreStoredSubLevelFromPointer(container, pointer, subLevelId)
+                        && container.getSubLevel(subLevelId) instanceof ServerSubLevel restoredSubLevel) {
+                    updateVisiblePositionSnapshot(targetLevel, targetWaystone, restoredSubLevel, trackingPoint);
+                    return true;
+                }
                 WaystonesSable.LOGGER.warn(
                         "Sable did not load SubLevel {} for target Waystone {} from pointer {}.",
                         subLevelId,
@@ -602,6 +621,94 @@ public final class SableWaystoneCompat {
             );
             return false;
         }
+    }
+
+    private static boolean tryRestoreStoredSubLevelFromPointer(
+            ServerSubLevelContainer container,
+            GlobalSavedSubLevelPointer pointer,
+            UUID subLevelId
+    ) {
+        if (!(container.getHoldingChunkMap() instanceof SubLevelHoldingChunkMap holdingMap)
+                || !(holdingMap instanceof SubLevelHoldingChunkMapAccessor accessor)) {
+            return false;
+        }
+
+        SubLevelData data;
+        try {
+            data = holdingMap.getStorage().attemptLoadSubLevel(pointer.chunkPos(), pointer.local());
+        } catch (RuntimeException exception) {
+            WaystonesSable.LOGGER.debug(
+                    "Direct Sable pointer probe failed for SubLevel {} at {}.",
+                    subLevelId,
+                    pointer,
+                    exception
+            );
+            return false;
+        }
+
+        if (data == null) {
+            return false;
+        }
+        if (!subLevelId.equals(data.uuid())) {
+            WaystonesSable.LOGGER.warn(
+                    "Sable pointer {} resolves to SubLevel {}, not the tracked SubLevel {}.",
+                    pointer,
+                    data.uuid(),
+                    subLevelId
+            );
+            return false;
+        }
+
+        SubLevelHoldingChunk holdingChunk = accessor.waystonesSable$getOrLoadHoldingChunk(pointer.chunkPos(), true);
+        if (holdingChunk == null) {
+            return false;
+        }
+
+        Set<UUID> loadedIds = new HashSet<>();
+        for (HoldingSubLevel loadedSubLevel : holdingChunk.getLoadedHoldingSubLevels()) {
+            loadedIds.add(loadedSubLevel.data().uuid());
+        }
+        for (UUID dependency : data.dependencies()) {
+            if (!loadedIds.contains(dependency)) {
+                WaystonesSable.LOGGER.warn(
+                        "Cannot repair Sable pointer {} for SubLevel {} because dependency {} is not indexed in the holding chunk.",
+                        pointer,
+                        subLevelId,
+                        dependency
+                );
+                return false;
+            }
+        }
+
+        boolean indexChanged = false;
+        if (!holdingChunk.getSubLevelPointers().contains(pointer.local())) {
+            holdingChunk.getSubLevelPointers().add(pointer.local());
+            indexChanged = true;
+        }
+        if (!loadedIds.contains(subLevelId)) {
+            holdingChunk.acceptHoldingSubLevel(new HoldingSubLevel(data, pointer));
+        }
+        if (indexChanged) {
+            accessor.waystonesSable$setDirty(pointer.chunkPos());
+        }
+
+        WaystonesSable.LOGGER.warn(
+                "Recovered persisted SubLevel {} for stale Sable holding-chunk index at pointer {}.",
+                subLevelId,
+                pointer
+        );
+        try {
+            holdingMap.snatchAndLoad(pointer, subLevelId);
+        } catch (RuntimeException exception) {
+            WaystonesSable.LOGGER.warn(
+                    "Failed to load recovered Sable SubLevel {} from pointer {}.",
+                    subLevelId,
+                    pointer,
+                    exception
+            );
+            return false;
+        }
+        return container.getSubLevel(subLevelId) instanceof ServerSubLevel;
     }
 
     private static void updateVisiblePositionSnapshot(

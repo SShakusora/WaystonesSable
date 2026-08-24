@@ -60,6 +60,13 @@ public final class WaystonesSableMixinPlugin implements IMixinConfigPlugin {
             "(L" + GLOBAL_SAVED_SUB_LEVEL_POINTER.replace('.', '/') + ";)V";
     private static final String SUB_LEVEL_HOLDING_CHUNK_MAP =
             "dev.ryanhcode.sable.sublevel.storage.holding.SubLevelHoldingChunkMap";
+    private static final String SUB_LEVEL_HOLDING_CHUNK =
+            "dev.ryanhcode.sable.sublevel.storage.holding.SubLevelHoldingChunk";
+    private static final String CHUNK_POS = "net.minecraft.world.level.ChunkPos";
+    private static final String GET_OR_LOAD_HOLDING_CHUNK_DESCRIPTOR =
+            "(L" + CHUNK_POS.replace('.', '/') + ";Z)L" + SUB_LEVEL_HOLDING_CHUNK.replace('.', '/') + ";";
+    private static final String SET_DIRTY_DESCRIPTOR =
+            "(L" + CHUNK_POS.replace('.', '/') + ";)V";
     private static final String SAVE_ALL_DESCRIPTOR = "()V";
 
     private static final String FORCE_SABLE_ASSEMBLY_MIXIN_PROPERTY =
@@ -209,7 +216,9 @@ public final class WaystonesSableMixinPlugin implements IMixinConfigPlugin {
             return holdingSubLevel != null
                     && holdingChunkMap != null
                     && hasMethod(holdingSubLevel, "setPointer", SET_POINTER_DESCRIPTOR)
-                    && hasMethod(holdingChunkMap, "saveAll", SAVE_ALL_DESCRIPTOR);
+                    && hasMethod(holdingChunkMap, "saveAll", SAVE_ALL_DESCRIPTOR)
+                    && hasMethod(holdingChunkMap, "getOrLoadHoldingChunk", GET_OR_LOAD_HOLDING_CHUNK_DESCRIPTOR)
+                    && hasMethod(holdingChunkMap, "setDirty", SET_DIRTY_DESCRIPTOR);
         } catch (IOException | RuntimeException exception) {
             logProbeFailure("Sable pointer-sync API", exception);
             return false;

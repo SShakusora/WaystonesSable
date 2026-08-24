@@ -2,12 +2,15 @@ package com.sshakusora.waystonessable.gametest;
 
 import com.sshakusora.waystonessable.WaystonesSable;
 import com.sshakusora.waystonessable.compat.SableWaystoneCompat;
+import com.sshakusora.waystonessable.compat.SubLevelHoldingChunkMapAccessor;
 import com.sshakusora.waystonessable.compat.WaystonePositionSnapshotSavedData;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.neoforge.gametest.SableTestHelper;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.storage.SubLevelRemovalReason;
 import dev.ryanhcode.sable.sublevel.storage.holding.GlobalSavedSubLevelPointer;
+import dev.ryanhcode.sable.sublevel.storage.holding.SubLevelHoldingChunk;
+import dev.ryanhcode.sable.sublevel.storage.holding.SubLevelHoldingChunkMap;
 import dev.ryanhcode.sable.sublevel.tracking_points.SubLevelTrackingPointSavedData;
 import dev.ryanhcode.sable.sublevel.tracking_points.TrackingPoint;
 import net.blay09.mods.balm.api.Balm;
@@ -365,6 +368,73 @@ public final class SubLevelWaystoneUnloadTest {
             }
 
             ServerSubLevel loadedSubLevel = (ServerSubLevel) container.getSubLevel(subLevelId);
+            SubLevelWaystoneTestSupport.clearSubLevelPlot(container, loadedSubLevel);
+            helper.succeed();
+        });
+    }
+
+    @GameTest(template = "gravity", batch = "holding_index_drift", timeoutTicks = 1200)
+    public static void staleHoldingIndexDoesNotRejectPersistedWaystone(GameTestHelper helper) {
+        helper.runAfterDelay(5, () -> {
+            ServerSubLevelContainer container = SubLevelWaystoneTestSupport.requireContainer(helper);
+            SubLevelWaystoneTestSupport.SubLevelWaystone scenario = SubLevelWaystoneTestSupport.createSubLevelWaystone(
+                    helper,
+                    container,
+                    new Vector3d(18.5, 78.0, 18.5),
+                    "stale_holding_index"
+            );
+            Waystone waystone = scenario.waystone();
+            UUID subLevelId = scenario.subLevel().getUniqueId();
+
+            storeAndEvictSubLevel(helper, container, scenario.subLevel(), waystone);
+            TrackingPoint trackingPoint = SubLevelTrackingPointSavedData.getOrLoad(helper.getLevel())
+                    .getTrackingPoint(waystone.getWaystoneUid());
+            if (trackingPoint == null || trackingPoint.lastSavedSubLevelPointer() == null) {
+                helper.fail("Stale-index setup did not produce a persisted tracking pointer");
+                return;
+            }
+
+            GlobalSavedSubLevelPointer pointer = trackingPoint.lastSavedSubLevelPointer();
+            SubLevelHoldingChunkMap holdingMap = container.getHoldingChunkMap();
+            SubLevelHoldingChunk holdingChunk = ((SubLevelHoldingChunkMapAccessor) holdingMap)
+                    .waystonesSable$getOrLoadHoldingChunk(pointer.chunkPos(), false);
+            if (holdingChunk == null) {
+                helper.fail("Stale-index setup could not load the persisted holding chunk");
+                return;
+            }
+            if (!holdingChunk.getSubLevelPointers().remove(pointer.local())) {
+                helper.fail("Stale-index setup did not find the target pointer in the holding chunk");
+                return;
+            }
+            holdingMap.updateChunkStatus(pointer.chunkPos(), false);
+            holdingMap.saveAll();
+
+            if (holdingMap.getStorage().attemptLoadSubLevel(pointer.chunkPos(), pointer.local()) == null) {
+                helper.fail("Stale-index setup accidentally removed the SubLevel payload");
+                return;
+            }
+
+            WaystoneTeleportContext context = WaystonesAPI.createUnboundTeleportContext(
+                    FakePlayerFactory.getMinecraft(helper.getLevel()),
+                    waystone
+            );
+            WaystoneTeleportEvent.Prepare event = new WaystoneTeleportEvent.Prepare(
+                    context,
+                    new LinkedHashSet<>()
+            );
+            SableWaystoneCompat.prepareStoredSubLevelForTeleport(event);
+
+            if (!(container.getSubLevel(subLevelId) instanceof ServerSubLevel loadedSubLevel)) {
+                helper.fail("A persisted SubLevel was rejected after its holding index entry was removed");
+                return;
+            }
+            SubLevelHoldingChunk repairedChunk = ((SubLevelHoldingChunkMapAccessor) holdingMap)
+                    .waystonesSable$getOrLoadHoldingChunk(pointer.chunkPos(), false);
+            if (repairedChunk == null || !repairedChunk.getSubLevelPointers().contains(pointer.local())) {
+                helper.fail("Sable pointer repair did not restore the holding-chunk index entry");
+                return;
+            }
+
             SubLevelWaystoneTestSupport.clearSubLevelPlot(container, loadedSubLevel);
             helper.succeed();
         });
