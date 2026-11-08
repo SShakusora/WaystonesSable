@@ -14,12 +14,15 @@ import dev.ryanhcode.sable.companion.math.Pose3dc;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import net.blay09.mods.waystones.api.Waystone;
 import net.blay09.mods.waystones.api.WaystoneTeleportContext;
+import net.blay09.mods.waystones.api.WaystoneTypes;
 import net.blay09.mods.waystones.api.event.WaystoneTeleportEntityEvent;
 import net.blay09.mods.waystones.api.event.WaystoneTeleportEvent;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.*;
 
@@ -99,20 +102,46 @@ public final class SubLevelTeleportHandler {
 
     public void prepareEntityTeleport(final WaystoneTeleportEntityEvent.Pre event) {
         final TeleportLoadLease pending = pendingTeleports.get(event.getContext());
-        if (pending == null) {
-            return;
-        }
-
-        final ServerSubLevel subLevel = pending.subLevel();
+        final ServerSubLevel subLevel = pending != null ? pending.subLevel() : findTargetSubLevel(event);
         final Waystone targetWaystone = event.getContext().getTargetWaystone();
 
-        if (!SubLevelPlotLookup.ownsWaystone(subLevel, targetWaystone)) {
+        if (subLevel == null || !SubLevelPlotLookup.ownsWaystone(subLevel, targetWaystone)) {
             return;
         }
 
         final Pose3dc pose = subLevel.logicalPose();
-        event.setTargetPosition(SubLevelCoordinateTransforms.toWorldTeleportPosition(pose, event.getTargetPosition()));
+        final Vec3 targetPosition = WaystoneTypes.WARP_PLATE.equals(targetWaystone.getWaystoneType())
+                ? pose.transformPosition(event.getTargetPosition())
+                : SubLevelCoordinateTransforms.toWorldTeleportPosition(pose, event.getTargetPosition());
+        event.setTargetPosition(targetPosition);
         event.setDirection(SubLevelCoordinateTransforms.toWorldDirection(pose, event.getDirection()));
+    }
+
+    private static ServerSubLevel findTargetSubLevel(final WaystoneTeleportEntityEvent event) {
+        final ServerSubLevelContainer container = SubLevelContainer.getContainer(event.getTargetLevel());
+        return container != null
+                ? SubLevelPlotLookup.findLoadedSubLevel(container, event.getContext().getTargetWaystone().getPos())
+                : null;
+    }
+
+    public void completeEntityTeleport(final WaystoneTeleportEntityEvent.Post event) {
+        if (!event.getTeleportResult().isSuccessful()) {
+            return;
+        }
+        // A dimension change can replace the entity. Always reset and sync the successful result.
+        final Entity entity = event.getTeleportedEntity();
+        final ServerSubLevel candidate = findTargetSubLevel(event);
+        final ServerSubLevel target = candidate != null && !candidate.isRemoved()
+                && entity.level() == candidate.getLevel()
+                && SubLevelPlotLookup.ownsWaystone(candidate, event.getContext().getTargetWaystone())
+                && candidate.getPlot().contains(candidate.logicalPose().transformPositionInverse(entity.position()))
+                ? candidate : null;
+        // The server cannot observe a local player's inheritedVelocity after they leave a ship.
+        // Synchronize every successful Waystone arrival, including world -> world teleports.
+        final UUID targetId = target != null ? target.getUniqueId() : null;
+        final Vec3 anchor = target != null ? target.logicalPose().transformPositionInverse(entity.position()) : Vec3.ZERO;
+        TeleportMotion.arrive(entity, targetId, anchor);
+        PacketDistributor.sendToPlayersTrackingEntityAndSelf(entity, TeleportMotionPayload.forEntity(entity, targetId, anchor));
     }
 
     public void completeTeleport(final WaystoneTeleportEvent.Complete event) {

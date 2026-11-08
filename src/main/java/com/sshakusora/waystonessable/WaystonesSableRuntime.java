@@ -29,6 +29,7 @@ public final class WaystonesSableRuntime {
         Balm.getEvents().onEvent(WaystonesLoadedEvent.class, event -> tracker.reconcileLoadedWaystones(event.getWaystoneManager()));
         Balm.getEvents().onEvent(WaystoneTeleportEvent.Prepare.class, teleports::prepareTeleport);
         Balm.getEvents().onEvent(WaystoneTeleportEntityEvent.Pre.class, teleports::prepareEntityTeleport);
+        Balm.getEvents().onEvent(WaystoneTeleportEntityEvent.Post.class, teleports::completeEntityTeleport);
         Balm.getEvents().onEvent(WaystoneTeleportEvent.Complete.class, teleports::completeTeleport);
         Balm.getEvents().onEvent(BuildWaystoneSelectionMenuEvent.class, selectionMenus::onBuildSelectionMenu);
     }

@@ -34,7 +34,8 @@ public final class SubLevelCoordinateTransforms {
     }
 
     /**
-     * Waystones targets block centers; subtract half a block before transforming entity feet.
+     * Converts ordinary Waystone block-center targets to ground-level feet positions.
+     * Warp plate arrivals must retain their original height and transform the position directly.
      */
     public static Vec3 toWorldTeleportPosition(final Pose3dc pose, final Vec3 targetPosition) {
         return pose.transformPosition(getFeetStoragePos(targetPosition));
