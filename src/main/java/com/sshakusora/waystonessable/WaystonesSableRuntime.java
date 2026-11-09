@@ -2,10 +2,10 @@ package com.sshakusora.waystonessable;
 
 import com.sshakusora.waystonessable.association.WaystoneBindingTracker;
 import com.sshakusora.waystonessable.requirement.SubLevelDistanceRequirements;
+import com.sshakusora.waystonessable.selection.SubLevelWaystoneGroup;
 import com.sshakusora.waystonessable.selection.WaystoneSelectionMenuHandler;
 import com.sshakusora.waystonessable.storage.SubLevelRestorer;
 import com.sshakusora.waystonessable.teleport.SubLevelTeleportHandler;
-
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.neoforge.event.ForgeSableSubLevelContainerReadyEvent;
 import net.blay09.mods.balm.api.Balm;
@@ -32,6 +32,7 @@ public final class WaystonesSableRuntime {
         Balm.getEvents().onEvent(WaystoneTeleportEntityEvent.Post.class, teleports::completeEntityTeleport);
         Balm.getEvents().onEvent(WaystoneTeleportEvent.Complete.class, teleports::completeTeleport);
         Balm.getEvents().onEvent(BuildWaystoneSelectionMenuEvent.class, selectionMenus::onBuildSelectionMenu);
+        Balm.getEvents().onEvent(CollectDefaultWaystoneGroupsEvent.class, SubLevelWaystoneGroup::collectDefaults);
     }
 
     public void onCommonSetup(final FMLCommonSetupEvent event) {
