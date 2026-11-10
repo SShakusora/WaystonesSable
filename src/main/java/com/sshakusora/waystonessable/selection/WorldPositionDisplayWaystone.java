@@ -20,7 +20,7 @@ final class WorldPositionDisplayWaystone extends MutablePersonalizedWaystoneDele
     private final boolean onSubLevel;
 
     WorldPositionDisplayWaystone(final MutablePersonalizedWaystone delegate,
-                                @Nullable final Vec3 worldCenter, final boolean onSubLevel) {
+                                 @Nullable final Vec3 worldCenter, final boolean onSubLevel) {
         super(delegate);
         this.onSubLevel = onSubLevel;
         this.displayBacking = worldCenter != null ? new WaystoneDelegate(delegate.getBackingWaystone()) {

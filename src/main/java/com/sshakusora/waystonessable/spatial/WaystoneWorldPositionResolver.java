@@ -3,12 +3,14 @@ package com.sshakusora.waystonessable.spatial;
 import com.sshakusora.waystonessable.association.WaystoneBindingSavedData;
 import com.sshakusora.waystonessable.association.WaystoneSubLevelBinding;
 import com.sshakusora.waystonessable.storage.StoredSubLevelLookup;
+import com.sshakusora.waystonessable.teleport.PlayerTeleportTarget;
 
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.companion.math.Pose3dc;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import net.blay09.mods.waystones.api.Waystone;
+import net.blay09.mods.waystones.api.WaystoneTypes;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -25,6 +27,12 @@ public final class WaystoneWorldPositionResolver {
 
     public static Optional<Vec3> resolve(final MinecraftServer server, final Waystone waystone,
                                          final Map<UUID, Optional<Pose3dc>> poseCache) {
+        if (waystone instanceof PlayerTeleportTarget playerTarget) {
+            return Optional.of(playerTarget.worldPosition());
+        }
+        if (WaystoneTypes.TWINBOUND_FEATHER.equals(waystone.getWaystoneType())) {
+            return Optional.of(waystone.getPos().getCenter());
+        }
         final ServerLevel level = server.getLevel(waystone.getDimension());
         if (level == null) {
             return Optional.empty();

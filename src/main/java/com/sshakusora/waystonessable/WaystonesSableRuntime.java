@@ -9,6 +9,7 @@ import com.sshakusora.waystonessable.teleport.SubLevelTeleportHandler;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.neoforge.event.ForgeSableSubLevelContainerReadyEvent;
 import net.blay09.mods.balm.api.Balm;
+import net.blay09.mods.balm.api.event.EventPriority;
 import net.blay09.mods.waystones.api.event.*;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
@@ -27,6 +28,7 @@ public final class WaystonesSableRuntime {
         Balm.getEvents().onEvent(WaystoneUpdatedEvent.class, event -> tracker.onWaystoneChanged(event.getWaystone()));
         Balm.getEvents().onEvent(WaystoneRemovedEvent.class, event -> tracker.removeWaystone(event.getWaystone()));
         Balm.getEvents().onEvent(WaystonesLoadedEvent.class, event -> tracker.reconcileLoadedWaystones(event.getWaystoneManager()));
+        Balm.getEvents().onEvent(WaystoneTeleportEvent.Pre.class, teleports::startTeleport, EventPriority.Lowest);
         Balm.getEvents().onEvent(WaystoneTeleportEvent.Prepare.class, teleports::prepareTeleport);
         Balm.getEvents().onEvent(WaystoneTeleportEntityEvent.Pre.class, teleports::prepareEntityTeleport);
         Balm.getEvents().onEvent(WaystoneTeleportEntityEvent.Post.class, teleports::completeEntityTeleport);

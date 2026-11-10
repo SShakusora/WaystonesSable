@@ -1,5 +1,6 @@
 package com.sshakusora.waystonessable.teleport;
 
+import com.mojang.datafixers.util.Either;
 import com.mojang.serialization.Codec;
 import com.sshakusora.waystonessable.WaystonesSable;
 import com.sshakusora.waystonessable.association.WaystoneBindingSavedData;
@@ -15,16 +16,26 @@ import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import net.blay09.mods.waystones.api.Waystone;
 import net.blay09.mods.waystones.api.WaystoneTeleportContext;
 import net.blay09.mods.waystones.api.WaystoneTypes;
+import net.blay09.mods.waystones.api.WaystonesAPI;
+import net.blay09.mods.waystones.api.error.WaystoneTeleportError;
 import net.blay09.mods.waystones.api.event.WaystoneTeleportEntityEvent;
 import net.blay09.mods.waystones.api.event.WaystoneTeleportEvent;
+import net.blay09.mods.waystones.config.WaystonesConfig;
+import net.blay09.mods.waystones.config.WaystonesConfigData.TransportMobs;
+import net.blay09.mods.waystones.core.WaystoneTeleportManager;
+import net.blay09.mods.waystones.item.ModItems;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Owns the complete teleport flow and its temporary force-load tickets.
@@ -48,6 +59,56 @@ public final class SubLevelTeleportHandler {
         this.restorer = restorer;
     }
 
+    public void startTeleport(final WaystoneTeleportEvent.Pre event) {
+        final WaystoneTeleportContext context = event.getContext();
+        if (event.isCanceled() || !(context.getEntity() instanceof ServerPlayer player)) {
+            return;
+        }
+
+        final boolean wasDimensional = context.isDimensionalTeleport();
+        if (context.getWarpItem().is(ModItems.returnScroll)) {
+            final Optional<Waystone> nearest = ReturnScrollTargetResolver.find(player);
+            if (nearest.isEmpty()) {
+                cancelStart(event, player, "return_scroll_no_target");
+                return;
+            }
+            context.setTargetWaystone(nearest.get());
+        } else if (WaystoneTypes.TWINBOUND_FEATHER.equals(context.getTargetWaystone().getWaystoneType())) {
+            final Optional<PlayerTeleportTarget> target = PlayerTeleportTarget.create(player, context.getTargetWaystone());
+            if (target.isEmpty()) {
+                cancelStart(event, player, "player_target_unavailable");
+                return;
+            }
+            context.setTargetWaystone(target.get());
+        } else {
+            return;
+        }
+
+        if (wasDimensional != context.isDimensionalTeleport()
+                && WaystonesConfig.getActive().teleports.transportPets == TransportMobs.SAME_DIMENSION) {
+            final Collection<? extends Entity> pets = WaystoneTeleportManager.findPets(player);
+            if (context.isDimensionalTeleport()) {
+                context.getAdditionalEntities().removeAll(pets);
+            } else {
+                for (final Entity pet : pets) {
+                    if (!context.getAdditionalEntities().contains(pet)) {
+                        context.getAdditionalEntities().add(pet);
+                    }
+                }
+            }
+        }
+        if (context.getTargetWaystone() instanceof PlayerTeleportTarget playerTarget) {
+            playerTarget.initializeRequirements(context);
+        } else {
+            context.setRequirements(WaystonesAPI.resolveRequirements(context));
+        }
+    }
+
+    private static void cancelStart(final WaystoneTeleportEvent.Pre event, final ServerPlayer player, final String reason) {
+        event.setCanceled(true);
+        player.sendSystemMessage(Component.translatable("chat.waystonessable." + reason).withStyle(ChatFormatting.DARK_RED));
+    }
+
     public void prepareTeleport(final WaystoneTeleportEvent.Prepare event) {
         final WaystoneTeleportContext context = event.getContext();
         final Entity entity = context.getEntity();
@@ -57,6 +118,14 @@ public final class SubLevelTeleportHandler {
         }
 
         final Waystone targetWaystone = context.getTargetWaystone();
+        if (targetWaystone instanceof PlayerTeleportTarget playerTarget) {
+            preparePlayerTeleport(event, playerTarget);
+            return;
+        }
+        if (WaystoneTypes.TWINBOUND_FEATHER.equals(targetWaystone.getWaystoneType())) {
+            // A player world position must never enter the persistent Plot-binding path.
+            return;
+        }
         final ServerLevel targetLevel = server.getLevel(targetWaystone.getDimension());
         if (targetLevel == null) {
             return;
@@ -100,7 +169,38 @@ public final class SubLevelTeleportHandler {
         }
     }
 
+    private void preparePlayerTeleport(final WaystoneTeleportEvent.Prepare event, final PlayerTeleportTarget target) {
+        final ServerSubLevel subLevel = target.subLevel();
+        if (subLevel != null && !subLevel.isRemoved()) {
+            final ServerSubLevelContainer container = SubLevelContainer.getContainer(subLevel.getLevel());
+            if (container != null) {
+                final UUID key = UUID.randomUUID();
+                container.addForceLoadTicket(subLevel, TELEPORT_TICKET, key);
+                final TeleportLoadLease previous = pendingTeleports.put(event.getContext(), new TeleportLoadLease(container, subLevel, key));
+                if (previous != null) {
+                    removeTicket(previous);
+                }
+            }
+        }
+        event.addPreparationTask(loadResult -> {
+            final Either<Void, WaystoneTeleportError> result = loadResult.flatMap(ignored -> {
+                final Vec3 before = target.worldPosition();
+                if (!target.refresh()) {
+                    return Either.right(new WaystoneTeleportError.TeleportNoLongerValid());
+                }
+                if (!before.equals(target.worldPosition())) {
+                    target.refreshRequirements(event.getContext());
+                }
+                return Either.left(null);
+            });
+            return CompletableFuture.completedFuture(result);
+        });
+    }
+
     public void prepareEntityTeleport(final WaystoneTeleportEntityEvent.Pre event) {
+        if (event.getContext().getTargetWaystone() instanceof PlayerTeleportTarget) {
+            return;
+        }
         final TeleportLoadLease pending = pendingTeleports.get(event.getContext());
         final ServerSubLevel subLevel = pending != null ? pending.subLevel() : findTargetSubLevel(event);
         final Waystone targetWaystone = event.getContext().getTargetWaystone();
@@ -118,6 +218,12 @@ public final class SubLevelTeleportHandler {
     }
 
     private static ServerSubLevel findTargetSubLevel(final WaystoneTeleportEntityEvent event) {
+        if (event.getContext().getTargetWaystone() instanceof PlayerTeleportTarget playerTarget) {
+            return playerTarget.subLevel();
+        }
+        if (WaystoneTypes.TWINBOUND_FEATHER.equals(event.getContext().getTargetWaystone().getWaystoneType())) {
+            return null;
+        }
         final ServerSubLevelContainer container = SubLevelContainer.getContainer(event.getTargetLevel());
         return container != null
                 ? SubLevelPlotLookup.findLoadedSubLevel(container, event.getContext().getTargetWaystone().getPos())
@@ -133,7 +239,8 @@ public final class SubLevelTeleportHandler {
         final ServerSubLevel candidate = findTargetSubLevel(event);
         final ServerSubLevel target = candidate != null && !candidate.isRemoved()
                 && entity.level() == candidate.getLevel()
-                && SubLevelPlotLookup.ownsWaystone(candidate, event.getContext().getTargetWaystone())
+                && (event.getContext().getTargetWaystone() instanceof PlayerTeleportTarget
+                || SubLevelPlotLookup.ownsWaystone(candidate, event.getContext().getTargetWaystone()))
                 && candidate.getPlot().contains(candidate.logicalPose().transformPositionInverse(entity.position()))
                 ? candidate : null;
         // The server cannot observe a local player's inheritedVelocity after they leave a ship.
