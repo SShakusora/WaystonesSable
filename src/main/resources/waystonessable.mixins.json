@@ -9,6 +9,7 @@
     "sable.ServerboundMovePlayerPacketMixin",
     "sable.SubLevelHoldingChunkAccessor",
     "sable.SubLevelHoldingChunkMapAccessor",
-    "sable.SubLevelHoldingChunkMapMixin"
+    "sable.SubLevelHoldingChunkMapMixin",
+    "sable.SubLevelTrackingSystemMixin"
   ]
 }

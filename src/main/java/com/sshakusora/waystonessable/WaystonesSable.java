@@ -1,6 +1,7 @@
 package com.sshakusora.waystonessable;
 
 import com.mojang.logging.LogUtils;
+import com.sshakusora.waystonessable.teleport.SubLevelRemovalPayload;
 import com.sshakusora.waystonessable.teleport.TeleportMotion;
 import com.sshakusora.waystonessable.teleport.TeleportMotionPayload;
 import net.blay09.mods.balm.Balmstrap;
@@ -20,6 +21,7 @@ public class WaystonesSable {
         final WaystonesSableRuntime runtime = new WaystonesSableRuntime();
         modEventBus.addListener(runtime::onCommonSetup);
         modEventBus.addListener(TeleportMotionPayload::register);
+        modEventBus.addListener(SubLevelRemovalPayload::register);
         NeoForge.EVENT_BUS.addListener(TeleportMotion::beforeEntityTick);
         NeoForge.EVENT_BUS.addListener(runtime::onContainerReady);
         NeoForge.EVENT_BUS.addListener(runtime::onServerStopping);
