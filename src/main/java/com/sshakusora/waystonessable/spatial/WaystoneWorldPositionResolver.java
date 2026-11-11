@@ -1,10 +1,10 @@
 package com.sshakusora.waystonessable.spatial;
 
+import com.sshakusora.waystonessable.association.SubLevelKey;
 import com.sshakusora.waystonessable.association.WaystoneBindingSavedData;
 import com.sshakusora.waystonessable.association.WaystoneSubLevelBinding;
 import com.sshakusora.waystonessable.storage.StoredSubLevelLookup;
 import com.sshakusora.waystonessable.teleport.PlayerTeleportTarget;
-
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.companion.math.Pose3dc;
@@ -19,14 +19,13 @@ import net.minecraft.world.phys.Vec3;
 
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 
 public final class WaystoneWorldPositionResolver {
     private WaystoneWorldPositionResolver() {
     }
 
     public static Optional<Vec3> resolve(final MinecraftServer server, final Waystone waystone,
-                                         final Map<UUID, Optional<Pose3dc>> poseCache) {
+                                         final Map<SubLevelKey, Optional<Pose3dc>> poseCache) {
         if (waystone instanceof PlayerTeleportTarget playerTarget) {
             return Optional.of(playerTarget.worldPosition());
         }
@@ -61,7 +60,8 @@ public final class WaystoneWorldPositionResolver {
             return Optional.empty();
         }
 
-        return poseCache.computeIfAbsent(entry.subLevelId(), id -> StoredSubLevelLookup.findPose(container, entry, plotX, plotZ))
+        return poseCache.computeIfAbsent(new SubLevelKey(entry.dimension(), entry.subLevelId()),
+                        id -> StoredSubLevelLookup.findPose(container, entry, plotX, plotZ))
                 .map(pose -> pose.transformPosition(center));
     }
 }

@@ -22,8 +22,8 @@ public abstract class SubLevelTrackingSystemMixin {
 
     @Inject(method = "sendRemoval", at = @At("HEAD"), cancellable = true, require = 1)
     private void waystonessable$sendScopedRemoval(final VeilPacketManager.PacketSink sink,
-                                                 final ServerSubLevel subLevel,
-                                                 final CallbackInfo callback) {
+                                                  final ServerSubLevel subLevel,
+                                                  final CallbackInfo callback) {
         final SubLevelContainer container = SubLevelContainer.getContainer(level);
         if (container == null) {
             throw new IllegalStateException("Cannot send SubLevel removal without its source container");

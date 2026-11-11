@@ -2,7 +2,10 @@ package com.sshakusora.waystonessable.association;
 
 import com.mojang.serialization.DataResult;
 import com.sshakusora.waystonessable.WaystonesSable;
+import dev.ryanhcode.sable.companion.math.Pose3dc;
 import dev.ryanhcode.sable.sublevel.storage.holding.GlobalSavedSubLevelPointer;
+import dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelData;
+import dev.ryanhcode.sable.util.SableNBTUtils;
 import net.blay09.mods.waystones.Waystones;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -15,10 +18,7 @@ import net.minecraft.world.level.saveddata.SavedData;
 import net.neoforged.neoforge.common.IOUtilities;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
 
 /**
  * Persistent relationship between a Waystone and the Sable SubLevel that owns it.
@@ -33,8 +33,10 @@ public final class WaystoneBindingSavedData extends SavedData {
     private static final String ENTRIES_TAG = Waystones.MOD_ID;
 
     private final Map<UUID, WaystoneSubLevelBinding> entries = new HashMap<>();
+    private final Map<SubLevelKey, Set<UUID>> bySubLevel = new HashMap<>();
+    private final Map<SubLevelKey, SubLevelMetadata> metadata = new HashMap<>();
 
-    private WaystoneBindingSavedData() {
+    WaystoneBindingSavedData() {
     }
 
     public static WaystoneBindingSavedData getOrLoad(final MinecraftServer server) {
@@ -49,7 +51,7 @@ public final class WaystoneBindingSavedData extends SavedData {
         );
     }
 
-    private static WaystoneBindingSavedData load(final CompoundTag tag) {
+    static WaystoneBindingSavedData load(final CompoundTag tag) {
         final WaystoneBindingSavedData index = new WaystoneBindingSavedData();
         final CompoundTag entriesTag = tag.getCompound(ENTRIES_TAG);
 
@@ -68,12 +70,27 @@ public final class WaystoneBindingSavedData extends SavedData {
                 );
                 final GlobalSavedSubLevelPointer pointer = readPointer(entryTag);
 
-                index.entries.put(waystoneId, new WaystoneSubLevelBinding(dimension, subLevelId, plotX, plotZ, localPos, pointer));
+                index.put(waystoneId, new WaystoneSubLevelBinding(dimension, subLevelId, plotX, plotZ, localPos, pointer));
             } catch (final IllegalArgumentException exception) {
                 WaystonesSable.LOGGER.warn("Ignoring malformed Waystones/Sable association {}", key, exception);
             }
         }
 
+        final var dimensions = tag.getCompound("sublevels");
+        for (final String dimension : dimensions.getAllKeys()) {
+            final var levels = dimensions.getCompound(dimension);
+            for (final String id : levels.getAllKeys()) {
+                try {
+                    final var data = levels.getCompound(id);
+                    index.metadata.put(new SubLevelKey(dimension, UUID.fromString(id)), new SubLevelMetadata(
+                            data.getInt("plot_x"), data.getInt("plot_z"),
+                            SableNBTUtils.readPose3d(data.getCompound("pose")), readPointer(data)));
+                } catch (IllegalArgumentException exception) {
+                    WaystonesSable.LOGGER.warn("Ignoring malformed SubLevel metadata {}", id, exception);
+                }
+            }
+        }
+        index.setDirty(false);
         return index;
     }
 
@@ -117,6 +134,20 @@ public final class WaystoneBindingSavedData extends SavedData {
         }
 
         tag.put(ENTRIES_TAG, entriesTag);
+        final var dimensions = new CompoundTag();
+        metadata.forEach((key, value) -> {
+            final var levels = dimensions.getCompound(key.dimension());
+            final var data = new CompoundTag();
+            data.putInt("plot_x", value.plotX());
+            data.putInt("plot_z", value.plotZ());
+            data.put("pose", SableNBTUtils.writePose3d(value.pose()));
+            if (value.pointer() != null) {
+                data.put("pointer", GlobalSavedSubLevelPointer.CODEC.encodeStart(NbtOps.INSTANCE, value.pointer()).getOrThrow());
+            }
+            levels.put(key.id().toString(), data);
+            dimensions.put(key.dimension(), levels);
+        });
+        tag.put("sublevels", dimensions);
         return tag;
     }
 
@@ -126,7 +157,9 @@ public final class WaystoneBindingSavedData extends SavedData {
     }
 
     void remove(final UUID waystoneId) {
-        if (entries.remove(waystoneId) != null) {
+        final var previous = entries.remove(waystoneId);
+        if (previous != null) {
+            unindex(waystoneId, previous);
             setDirty();
         }
     }
@@ -134,19 +167,28 @@ public final class WaystoneBindingSavedData extends SavedData {
     void put(final UUID waystoneId, final WaystoneSubLevelBinding entry) {
         final WaystoneSubLevelBinding previous = entries.put(waystoneId, entry);
         if (!entry.equals(previous)) {
+            if (previous != null) unindex(waystoneId, previous);
+            bySubLevel.computeIfAbsent(new SubLevelKey(entry.dimension(), entry.subLevelId()), key -> new HashSet<>())
+                    .add(waystoneId);
             setDirty();
         }
     }
 
-    boolean updatePointer(final UUID subLevelId, final GlobalSavedSubLevelPointer pointer) {
+    private void unindex(UUID id, WaystoneSubLevelBinding entry) {
+        final var key = new SubLevelKey(entry.dimension(), entry.subLevelId());
+        final var ids = bySubLevel.get(key);
+        if (ids != null && ids.remove(id) && ids.isEmpty()) bySubLevel.remove(key);
+    }
+
+    boolean updatePointer(final String dimension, final UUID subLevelId, final GlobalSavedSubLevelPointer pointer) {
         boolean changed = false;
-        for (final Map.Entry<UUID, WaystoneSubLevelBinding> mapEntry : entries.entrySet()) {
-            final WaystoneSubLevelBinding entry = mapEntry.getValue();
-            if (!subLevelId.equals(entry.subLevelId()) || Objects.equals(pointer, entry.pointer())) {
+        for (final UUID waystoneId : bySubLevel.getOrDefault(new SubLevelKey(dimension, subLevelId), Set.of())) {
+            final WaystoneSubLevelBinding entry = entries.get(waystoneId);
+            if (Objects.equals(pointer, entry.pointer())) {
                 continue;
             }
 
-            mapEntry.setValue(new WaystoneSubLevelBinding(
+            entries.put(waystoneId, new WaystoneSubLevelBinding(
                     entry.dimension(),
                     entry.subLevelId(),
                     entry.plotX(),
@@ -163,12 +205,53 @@ public final class WaystoneBindingSavedData extends SavedData {
         return changed;
     }
 
-    public static void updateSubLevelPointer(final ServerLevel level,
-                                             final UUID subLevelId,
-                                             final GlobalSavedSubLevelPointer pointer) {
-        if (level.getServer() != null) {
-            WaystoneBindingSavedData.getOrLoad(level.getServer()).updatePointer(subLevelId, pointer);
+    public @Nullable SubLevelMetadata metadata(String dimension, UUID id) {
+        return metadata.get(new SubLevelKey(dimension, id));
+    }
+
+    public void record(String dimension, UUID id, int plotX, int plotZ, Pose3dc pose,
+                       @Nullable GlobalSavedSubLevelPointer pointer) {
+        final var key = new SubLevelKey(dimension, id);
+        final var previous = metadata.get(key);
+        // null means "no new storage address", not deletion/invalidation of a known address.
+        final var effectivePointer = pointer != null ? pointer : previous != null ? previous.pointer() : null;
+        if (previous == null || !previous.matches(plotX, plotZ, pose, effectivePointer)) {
+            metadata.put(key, new SubLevelMetadata(plotX, plotZ, pose, effectivePointer));
+            setDirty();
         }
+        // An unknown update cannot validate an old canonical address or discard a different recovery hint.
+        if (pointer != null) updatePointer(dimension, id, pointer);
+    }
+
+    /**
+     * Metadata is canonical; per-Waystone pointers are recovery hints until validated during restore.
+     */
+    public List<GlobalSavedSubLevelPointer> pointerCandidates(WaystoneSubLevelBinding binding) {
+        final var candidates = new LinkedHashSet<GlobalSavedSubLevelPointer>();
+        final var snapshot = metadata(binding.dimension(), binding.subLevelId());
+        if (snapshot != null && snapshot.matchesPlot(binding.plotX(), binding.plotZ()) && snapshot.pointer() != null)
+            candidates.add(snapshot.pointer());
+        if (binding.pointer() != null) candidates.add(binding.pointer());
+        return List.copyOf(candidates);
+    }
+
+    public @Nullable GlobalSavedSubLevelPointer knownPointer(String dimension, UUID id, int plotX, int plotZ) {
+        final var snapshot = metadata(dimension, id);
+        return snapshot != null && snapshot.matchesPlot(plotX, plotZ) ? snapshot.pointer() : null;
+    }
+
+    public void removeSubLevel(String dimension, UUID id) {
+        final var key = new SubLevelKey(dimension, id);
+        final var waystones = bySubLevel.remove(key);
+        if (waystones != null) waystones.forEach(entries::remove);
+        if (metadata.remove(key) != null || waystones != null) setDirty();
+    }
+
+    public static void recordSerialized(ServerLevel level, SubLevelData data,
+                                        @Nullable GlobalSavedSubLevelPointer pointer) {
+        final var plot = data.fullTag().getCompound("plot");
+        getOrLoad(level.getServer()).record(level.dimension().location().toString(), data.uuid(),
+                plot.getInt("plot_x"), plot.getInt("plot_z"), data.pose(), pointer);
     }
 
     public static void flush(final MinecraftServer server, final boolean waitForIo) {

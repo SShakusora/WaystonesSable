@@ -5,6 +5,7 @@ import com.mojang.serialization.Codec;
 import com.sshakusora.waystonessable.WaystonesSable;
 import com.sshakusora.waystonessable.association.WaystoneBindingSavedData;
 import com.sshakusora.waystonessable.association.WaystoneBindingTracker;
+import com.sshakusora.waystonessable.association.WaystoneTargetIdentity;
 import com.sshakusora.waystonessable.spatial.SubLevelCoordinateTransforms;
 import com.sshakusora.waystonessable.spatial.SubLevelPlotLookup;
 import com.sshakusora.waystonessable.storage.SubLevelRestorer;
@@ -13,6 +14,7 @@ import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.ticket.SubLevelLoadingTicketType;
 import dev.ryanhcode.sable.companion.math.Pose3dc;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
+import dev.ryanhcode.sable.sublevel.storage.holding.GlobalSavedSubLevelPointer;
 import net.blay09.mods.waystones.api.Waystone;
 import net.blay09.mods.waystones.api.WaystoneTeleportContext;
 import net.blay09.mods.waystones.api.WaystoneTypes;
@@ -33,6 +35,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -53,6 +56,7 @@ public final class SubLevelTeleportHandler {
             Collections.synchronizedMap(new IdentityHashMap<>());
     private final WaystoneBindingTracker tracker;
     private final SubLevelRestorer restorer;
+    private final Set<MinecraftServer> stoppingServers = Collections.newSetFromMap(new WeakHashMap<>());
 
     public SubLevelTeleportHandler(final WaystoneBindingTracker tracker, final SubLevelRestorer restorer) {
         this.tracker = tracker;
@@ -137,36 +141,49 @@ public final class SubLevelTeleportHandler {
         }
 
         final ChunkPos targetChunk = new ChunkPos(targetWaystone.getPos());
-        ServerSubLevel subLevel = SubLevelPlotLookup.findLoadedSubLevel(container, targetWaystone.getPos());
-        SubLevelRestorer.RestoredSubLevel restoration = null;
-
-        final WaystoneBindingSavedData index = WaystoneBindingSavedData.getOrLoad(server);
-
-        if (subLevel == null && container.inBounds(targetChunk)) {
-            restoration = restorer.restore(container, targetWaystone, index.get(targetWaystone.getWaystoneUid()));
-            subLevel = restoration != null ? restoration.subLevel() : null;
-        }
-
+        final ServerSubLevel subLevel = SubLevelPlotLookup.findLoadedSubLevel(container, targetWaystone.getPos());
         if (subLevel != null) {
-            final UUID ticketKey = UUID.randomUUID();
-            container.addForceLoadTicket(subLevel, TELEPORT_TICKET, ticketKey);
             event.getChunkPositions().clear();
-            if (restoration != null) {
-                WaystonesSable.LOGGER.debug("Loaded unloaded SubLevel {} for Waystone teleport", subLevel.getUniqueId());
-            }
-
-            if (restoration != null && restoration.pointer() != null) {
-                WaystoneBindingSavedData.updateSubLevelPointer(
-                        container.getLevel(), subLevel.getUniqueId(), restoration.pointer());
-                tracker.updateBinding(targetWaystone, subLevel, container, restoration.pointer());
-            } else {
-                tracker.updateBinding(targetWaystone, subLevel, container);
-            }
-            final TeleportLoadLease previous = pendingTeleports.put(context, new TeleportLoadLease(container, subLevel, ticketKey));
-            if (previous != null) {
-                removeTicket(previous);
-            }
+            if (!attachTarget(context, container, subLevel, null)) rejectPreparation(event);
+        } else if (container.inBounds(targetChunk)) {
+            // Reserved storage coordinates must not cause vanilla to load plot chunks while we wait.
+            event.getChunkPositions().clear();
+            event.addPreparationTask(loadResult -> {
+                if (loadResult.right().isPresent()) return CompletableFuture.completedFuture(loadResult);
+                final var index = WaystoneBindingSavedData.getOrLoad(server);
+                return restorer.restore(container, targetWaystone, index.get(targetWaystone.getWaystoneUid()),
+                                () -> !stoppingServers.contains(server) && !entity.isRemoved() && targetWaystone.isValid())
+                        .thenApply(restored -> {
+                            if (restored == null || stoppingServers.contains(server) || entity.isRemoved()
+                                    || !targetWaystone.isValid() || restored.subLevel().isRemoved()
+                                    || !SubLevelPlotLookup.ownsWaystone(restored.subLevel(), targetWaystone)) {
+                                return Either.<Void, WaystoneTeleportError>right(new WaystoneTeleportError.TeleportNoLongerValid());
+                            }
+                            if (!attachTarget(context, container, restored.subLevel(), restored.pointer())) {
+                                return Either.<Void, WaystoneTeleportError>right(new WaystoneTeleportError.TeleportNoLongerValid());
+                            }
+                            return Either.<Void, WaystoneTeleportError>left(null);
+                        });
+            });
         }
+    }
+
+    private static void rejectPreparation(WaystoneTeleportEvent.Prepare event) {
+        event.addPreparationTask(ignored -> CompletableFuture.completedFuture(
+                Either.right(new WaystoneTeleportError.TeleportNoLongerValid())));
+    }
+
+    private boolean attachTarget(WaystoneTeleportContext context, ServerSubLevelContainer container,
+                                 ServerSubLevel subLevel,
+                                 @Nullable GlobalSavedSubLevelPointer pointer) {
+        final var identity = WaystoneTargetIdentity.capture(context.getTargetWaystone());
+        if (!tracker.updateBinding(context.getTargetWaystone(), subLevel, container, pointer)) return false;
+        final UUID ticketKey = UUID.randomUUID();
+        container.addForceLoadTicket(subLevel, TELEPORT_TICKET, ticketKey);
+        final var previous = pendingTeleports.put(context, new TeleportLoadLease(container, subLevel, ticketKey,
+                identity, subLevel.getUniqueId()));
+        if (previous != null) removeTicket(previous);
+        return true;
     }
 
     private void preparePlayerTeleport(final WaystoneTeleportEvent.Prepare event, final PlayerTeleportTarget target) {
@@ -176,7 +193,8 @@ public final class SubLevelTeleportHandler {
             if (container != null) {
                 final UUID key = UUID.randomUUID();
                 container.addForceLoadTicket(subLevel, TELEPORT_TICKET, key);
-                final TeleportLoadLease previous = pendingTeleports.put(event.getContext(), new TeleportLoadLease(container, subLevel, key));
+                final TeleportLoadLease previous = pendingTeleports.put(event.getContext(), new TeleportLoadLease(container, subLevel, key,
+                        WaystoneTargetIdentity.capture(target), subLevel.getUniqueId()));
                 if (previous != null) {
                     removeTicket(previous);
                 }
@@ -198,6 +216,7 @@ public final class SubLevelTeleportHandler {
     }
 
     public void prepareEntityTeleport(final WaystoneTeleportEntityEvent.Pre event) {
+        if (event.isCanceled()) return;
         if (event.getContext().getTargetWaystone() instanceof PlayerTeleportTarget) {
             return;
         }
@@ -205,7 +224,26 @@ public final class SubLevelTeleportHandler {
         final ServerSubLevel subLevel = pending != null ? pending.subLevel() : findTargetSubLevel(event);
         final Waystone targetWaystone = event.getContext().getTargetWaystone();
 
-        if (subLevel == null || !SubLevelPlotLookup.ownsWaystone(subLevel, targetWaystone)) {
+        final var container = SubLevelContainer.getContainer(event.getTargetLevel());
+        if (pending == null && (container == null || !container.inBounds(new ChunkPos(targetWaystone.getPos())))) {
+            return;
+        }
+        if (container == null || pending != null && pending.container() != container) {
+            event.overrideResult(null);
+            event.setCanceled(true);
+            return;
+        }
+        final var identity = pending != null ? pending.identity() : WaystoneTargetIdentity.capture(targetWaystone);
+        final var binding = WaystoneBindingSavedData.getOrLoad(container.getLevel().getServer()).get(identity.waystoneId());
+        final var expected = pending != null ? pending.subLevelId() : binding != null ? binding.subLevelId()
+                : subLevel != null ? subLevel.getUniqueId() : null;
+        if (subLevel == null || expected == null || !identity.unchanged(targetWaystone)
+                || !identity.matches(container, subLevel, expected)
+                || binding != null && (!binding.subLevelId().equals(expected) || !identity.matchesBinding(container, binding))
+                || pending != null && binding == null
+                || !tracker.updateBinding(targetWaystone, subLevel, container)) {
+            event.overrideResult(null);
+            event.setCanceled(true);
             return;
         }
 
@@ -217,7 +255,7 @@ public final class SubLevelTeleportHandler {
         event.setDirection(SubLevelCoordinateTransforms.toWorldDirection(pose, event.getDirection()));
     }
 
-    private static ServerSubLevel findTargetSubLevel(final WaystoneTeleportEntityEvent event) {
+    private static @Nullable ServerSubLevel findTargetSubLevel(final WaystoneTeleportEntityEvent event) {
         if (event.getContext().getTargetWaystone() instanceof PlayerTeleportTarget playerTarget) {
             return playerTarget.subLevel();
         }
@@ -263,6 +301,7 @@ public final class SubLevelTeleportHandler {
     }
 
     public void releaseServerState(final MinecraftServer server) {
+        stoppingServers.add(server);
         final List<TeleportLoadLease> removed = new ArrayList<>();
         synchronized (pendingTeleports) {
             pendingTeleports.values().removeIf(pending -> {
@@ -277,6 +316,6 @@ public final class SubLevelTeleportHandler {
     }
 
     private record TeleportLoadLease(ServerSubLevelContainer container, ServerSubLevel subLevel,
-                                     UUID ticketKey) {
+                                     UUID ticketKey, WaystoneTargetIdentity identity, UUID subLevelId) {
     }
 }

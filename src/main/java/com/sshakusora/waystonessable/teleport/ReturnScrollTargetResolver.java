@@ -1,5 +1,7 @@
 package com.sshakusora.waystonessable.teleport;
 
+import com.sshakusora.waystonessable.association.SubLevelKey;
+
 import com.sshakusora.waystonessable.spatial.WaystoneWorldPositionResolver;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.companion.math.Pose3dc;
@@ -13,7 +15,6 @@ import net.minecraft.world.phys.Vec3;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 
 final class ReturnScrollTargetResolver {
     private ReturnScrollTargetResolver() {
@@ -27,7 +28,7 @@ final class ReturnScrollTargetResolver {
 
         final var level = player.serverLevel();
         final var container = SubLevelContainer.getContainer(level);
-        final Map<UUID, Optional<Pose3dc>> poses = new HashMap<>();
+        final Map<SubLevelKey, Optional<Pose3dc>> poses = new HashMap<>();
         Waystone nearest = null;
         double nearestDistance = Double.POSITIVE_INFINITY;
         for (final Waystone waystone : WaystonesAPI.getActivatedWaystones(player)) {

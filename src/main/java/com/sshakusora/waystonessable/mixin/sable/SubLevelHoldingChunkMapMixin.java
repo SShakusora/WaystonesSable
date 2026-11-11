@@ -27,9 +27,9 @@ public abstract class SubLevelHoldingChunkMapMixin {
         final GlobalSavedSubLevelPointer pointer = callback.getReturnValue();
         if (pointer != null) {
             final SubLevelHoldingChunkMap map = (SubLevelHoldingChunkMap) (Object) this;
-            WaystoneBindingSavedData.updateSubLevelPointer(
+            WaystoneBindingSavedData.recordSerialized(
                     ((SubLevelHoldingChunkMapAccessor) map).waystonessable$getLevel(),
-                    data.uuid(),
+                    data,
                     pointer
             );
         }

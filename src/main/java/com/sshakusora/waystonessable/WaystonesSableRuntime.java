@@ -4,6 +4,7 @@ import com.sshakusora.waystonessable.association.WaystoneBindingTracker;
 import com.sshakusora.waystonessable.requirement.SubLevelDistanceRequirements;
 import com.sshakusora.waystonessable.selection.SubLevelWaystoneGroup;
 import com.sshakusora.waystonessable.selection.WaystoneSelectionMenuHandler;
+import com.sshakusora.waystonessable.storage.SubLevelReadScheduler;
 import com.sshakusora.waystonessable.storage.SubLevelRestorer;
 import com.sshakusora.waystonessable.teleport.SubLevelTeleportHandler;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
@@ -12,7 +13,9 @@ import net.blay09.mods.balm.api.Balm;
 import net.blay09.mods.balm.api.event.EventPriority;
 import net.blay09.mods.waystones.api.event.*;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
 /**
  * Wires event adapters and owns their server-lifetime state.
@@ -27,10 +30,9 @@ public final class WaystonesSableRuntime {
         Balm.getEvents().onEvent(WaystoneInitializedEvent.class, event -> tracker.onWaystoneChanged(event.getWaystone()));
         Balm.getEvents().onEvent(WaystoneUpdatedEvent.class, event -> tracker.onWaystoneChanged(event.getWaystone()));
         Balm.getEvents().onEvent(WaystoneRemovedEvent.class, event -> tracker.removeWaystone(event.getWaystone()));
-        Balm.getEvents().onEvent(WaystonesLoadedEvent.class, event -> tracker.reconcileLoadedWaystones(event.getWaystoneManager()));
         Balm.getEvents().onEvent(WaystoneTeleportEvent.Pre.class, teleports::startTeleport, EventPriority.Lowest);
         Balm.getEvents().onEvent(WaystoneTeleportEvent.Prepare.class, teleports::prepareTeleport);
-        Balm.getEvents().onEvent(WaystoneTeleportEntityEvent.Pre.class, teleports::prepareEntityTeleport);
+        Balm.getEvents().onEvent(WaystoneTeleportEntityEvent.Pre.class, teleports::prepareEntityTeleport, EventPriority.Lowest);
         Balm.getEvents().onEvent(WaystoneTeleportEntityEvent.Post.class, teleports::completeEntityTeleport);
         Balm.getEvents().onEvent(WaystoneTeleportEvent.Complete.class, teleports::completeTeleport);
         Balm.getEvents().onEvent(BuildWaystoneSelectionMenuEvent.class, selectionMenus::onBuildSelectionMenu);
@@ -49,6 +51,17 @@ public final class WaystonesSableRuntime {
 
     public void onServerStopping(final ServerStoppingEvent event) {
         teleports.releaseServerState(event.getServer());
+        SubLevelReadScheduler.release(event.getServer());
         tracker.releaseServerState(event.getServer());
+    }
+
+    public void onServerStarted(final ServerStartedEvent event) {
+        tracker.initializePendingContainers(event.getServer());
+    }
+
+    public void onServerTick(final ServerTickEvent.Post event) {
+        tracker.initializePendingContainers(event.getServer());
+        tracker.processPendingBindings(event.getServer());
+        SubLevelReadScheduler.tick(event.getServer());
     }
 }

@@ -1,173 +1,116 @@
 package com.sshakusora.waystonessable.storage;
 
 import com.sshakusora.waystonessable.WaystonesSable;
+import com.sshakusora.waystonessable.association.WaystoneBindingSavedData;
 import com.sshakusora.waystonessable.association.WaystoneSubLevelBinding;
+import com.sshakusora.waystonessable.association.WaystoneTargetIdentity;
 import com.sshakusora.waystonessable.mixin.sable.SubLevelHoldingChunkAccessor;
 import com.sshakusora.waystonessable.mixin.sable.SubLevelHoldingChunkMapAccessor;
 import com.sshakusora.waystonessable.spatial.SubLevelPlotLookup;
-
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
-import dev.ryanhcode.sable.sublevel.storage.HoldingSubLevel;
 import dev.ryanhcode.sable.sublevel.storage.holding.GlobalSavedSubLevelPointer;
-import dev.ryanhcode.sable.sublevel.storage.holding.SubLevelHoldingChunk;
 import dev.ryanhcode.sable.sublevel.storage.holding.SubLevelHoldingChunkMap;
-import dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelStorage;
 import net.blay09.mods.waystones.api.Waystone;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.BooleanSupplier;
 
 /**
- * Restores a serialized SubLevel through Sable's dependency-aware holding map.
+ * Indexed restoration; cold holding chunks are prepared cooperatively before publication.
  */
 public final class SubLevelRestorer {
-    /**
-     * Finds a serialized SubLevel whose plot owns the target Waystone, then lets Sable's
-     * holding-chunk map perform the normal dependency-aware load.
-     */
-    @Nullable
-    public RestoredSubLevel restore(final ServerSubLevelContainer container,
-                                    final Waystone targetWaystone,
-                                    @Nullable final WaystoneSubLevelBinding storedBinding) {
-        final SubLevelHoldingChunkMap holdingChunkMap = container.getHoldingChunkMap();
-        if (holdingChunkMap == null) {
-            return null;
-        }
+    public CompletableFuture<@Nullable RestoredSubLevel> restore(ServerSubLevelContainer container,
+                                                                 Waystone waystone, @Nullable WaystoneSubLevelBinding binding, BooleanSupplier stillValid) {
+        final var map = container.getHoldingChunkMap();
+        final var identity = WaystoneTargetIdentity.capture(waystone);
+        final var index = WaystoneBindingSavedData.getOrLoad(container.getLevel().getServer());
+        final int x = SubLevelPlotLookup.relativePlotX(container, waystone.getPos());
+        final int z = SubLevelPlotLookup.relativePlotZ(container, waystone.getPos());
+        if (!stillValid.getAsBoolean() || map == null || !identity.matchesBinding(container, binding)
+                || !binding.equals(index.get(identity.waystoneId()))) return CompletableFuture.completedFuture(null);
+        final var memory = loadFromMemory(container, map, binding.subLevelId(), x, z, identity, index);
+        if (memory != null) return CompletableFuture.completedFuture(memory);
+        // Capture both copies before waiting. External changes cancel this request; our verified repair happens last.
+        final var metadata = index.metadata(binding.dimension(), binding.subLevelId());
+        final BooleanSupplier current = () -> {
+            final var now = index.get(identity.waystoneId());
+            if (!stillValid.getAsBoolean() || !identity.unchanged(waystone) || !identity.matchesBinding(container, now)
+                    || !binding.subLevelId().equals(now.subLevelId())) return false;
+            if (binding.equals(now) && index.metadata(binding.dimension(), binding.subLevelId()) == metadata)
+                return true;
+            // A coalesced waiter may already have validated/repaired and activated this very target.
+            final var active = SubLevelPlotLookup.findLoadedSubLevel(container, identity.position());
+            return active != null && identity.matches(container, active, binding.subLevelId());
+        };
+        return tryCandidate(container, map, binding, identity, index, index.pointerCandidates(binding), 0, current);
+    }
 
-        final SubLevelStorage storage = holdingChunkMap.getStorage();
-        final int targetPlotX = SubLevelPlotLookup.relativePlotX(container, targetWaystone.getPos());
-        final int targetPlotZ = SubLevelPlotLookup.relativePlotZ(container, targetWaystone.getPos());
-
-        final WaystoneSubLevelBinding binding = storedBinding != null
-                && storedBinding.dimension().equals(targetWaystone.getDimension().location().toString())
-                && storedBinding.plotX() == targetPlotX
-                && storedBinding.plotZ() == targetPlotZ
-                ? storedBinding
-                : null;
-        if (binding != null) {
-            final RestoredSubLevel held = loadFromMemory(
-                    container,
-                    holdingChunkMap,
-                    binding.subLevelId(),
-                    targetPlotX,
-                    targetPlotZ
-            );
-            if (held != null && SubLevelPlotLookup.ownsWaystone(held.subLevel(), targetWaystone)) {
-                return held;
-            }
-
-            final RestoredSubLevel loadResult = loadFromPointer(
-                    container,
-                    holdingChunkMap,
-                    binding.pointer(),
-                    binding.subLevelId(),
-                    targetPlotX,
-                    targetPlotZ
-            );
-            if (loadResult != null && SubLevelPlotLookup.ownsWaystone(loadResult.subLevel(), targetWaystone)) {
-                return loadResult;
-            }
-        }
-
-        return SubLevelRegionScanner.scan(storage, targetPlotX, targetPlotZ,
-                binding != null ? binding.subLevelId() : null,
-                (pointer, data) -> {
-                    final RestoredSubLevel loaded = loadFromPointer(container, holdingChunkMap, pointer,
-                            data.uuid(), targetPlotX, targetPlotZ);
-                    return loaded != null && SubLevelPlotLookup.ownsWaystone(loaded.subLevel(), targetWaystone)
-                            ? loaded : null;
+    private static CompletableFuture<@Nullable RestoredSubLevel> tryCandidate(ServerSubLevelContainer container,
+                                                                              SubLevelHoldingChunkMap map, WaystoneSubLevelBinding binding, WaystoneTargetIdentity identity,
+                                                                              WaystoneBindingSavedData index, List<GlobalSavedSubLevelPointer> candidates, int next, BooleanSupplier current) {
+        if (!current.getAsBoolean()) return CompletableFuture.completedFuture(null);
+        final var active = SubLevelPlotLookup.findLoadedSubLevel(container, identity.position());
+        if (active != null)
+            return CompletableFuture.completedFuture(verifiedActive(container, active, binding, identity, index));
+        if (next >= candidates.size()) return CompletableFuture.completedFuture(null);
+        return SubLevelReadScheduler.loadForTarget(container.getLevel().getServer(), map, candidates.get(next).chunkPos(),
+                        binding.subLevelId(), binding.plotX(), binding.plotZ())
+                .thenCompose(chunk -> {
+                    if (!current.getAsBoolean()) return CompletableFuture.completedFuture(null);
+                    final var loaded = SubLevelPlotLookup.findLoadedSubLevel(container, identity.position());
+                    if (loaded != null)
+                        return CompletableFuture.completedFuture(verifiedActive(container, loaded, binding, identity, index));
+                    final var held = StoredSubLevelLookup.findInMemory(map, binding.subLevelId(), binding.plotX(), binding.plotZ());
+                    if (chunk != null && held != null) {
+                        // The actual UUID/plot and current owner validate an address; a hint alone never does.
+                        return CompletableFuture.completedFuture(loadFromMemory(container, map, binding.subLevelId(),
+                                binding.plotX(), binding.plotZ(), identity, index));
+                    }
+                    return tryCandidate(container, map, binding, identity, index, candidates, next + 1, current);
                 });
     }
 
-    /**
-     * Restores a holding sub-level that has not been written to disk yet.
-     *
-     * <p>Sable exposes the in-memory entry lookup and the final load operation, but its
-     * pointer-based {@code snatchAndLoad} cannot address an entry whose pointer is null.
-     * The holding chunk's own snatch operation is therefore used here so the target and
-     * all of its dependencies are removed from the holding map before Sable loads them,
-     * exactly as in the normal pointer-based path.</p>
-     */
-    @Nullable
-    private static RestoredSubLevel loadFromMemory(final ServerSubLevelContainer container,
-                                                   final SubLevelHoldingChunkMap holdingChunkMap,
-                                                   final UUID subLevelId,
-                                                   final int targetPlotX,
-                                                   final int targetPlotZ) {
-        if (StoredSubLevelLookup.findInMemory(holdingChunkMap, subLevelId, targetPlotX, targetPlotZ) == null) {
-            return null;
-        }
-
-        try {
-            final SubLevelHoldingChunkMapAccessor accessor = (SubLevelHoldingChunkMapAccessor) holdingChunkMap;
-            for (final SubLevelHoldingChunk holdingChunk : accessor.waystonessable$getLoadedHoldingChunks().values()) {
-                final Collection<HoldingSubLevel> snatched =
-                        ((SubLevelHoldingChunkAccessor) holdingChunk).waystonessable$snatch(subLevelId);
-                if (snatched == null) {
-                    continue;
-                }
-
-                accessor.waystonessable$setDirty(holdingChunk.getChunkPos());
-                for (final HoldingSubLevel holdingSubLevel : snatched) {
-                    holdingChunkMap.loadHoldingSubLevel(holdingSubLevel);
-                }
-
-                if (container.getSubLevel(subLevelId) instanceof ServerSubLevel loaded) {
-                    // The holding entry may still carry Sable's previous disk
-                    // pointer. It is not a new serialized location.
-                    return new RestoredSubLevel(loaded, null);
-                }
-            }
-        } catch (final RuntimeException exception) {
-            WaystonesSable.LOGGER.warn("Failed to restore in-memory SubLevel {} for Waystone teleport", subLevelId, exception);
-        }
-
-        return null;
+    private static @Nullable RestoredSubLevel verifiedActive(ServerSubLevelContainer container, ServerSubLevel active,
+                                                             WaystoneSubLevelBinding binding, WaystoneTargetIdentity identity, WaystoneBindingSavedData index) {
+        if (!identity.matches(container, active, binding.subLevelId())) return null;
+        index.record(binding.dimension(), binding.subLevelId(), binding.plotX(), binding.plotZ(), active.logicalPose(),
+                active.getLastSerializationPointer());
+        return new RestoredSubLevel(active, active.getLastSerializationPointer());
     }
 
-    @Nullable
-    private static SubLevelRestorer.RestoredSubLevel loadFromPointer(final ServerSubLevelContainer container,
-                                                                     final SubLevelHoldingChunkMap holdingChunkMap,
-                                                                     @Nullable final GlobalSavedSubLevelPointer pointer,
-                                                                     final UUID subLevelId,
-                                                                     final int targetPlotX,
-                                                                     final int targetPlotZ) {
-        if (pointer == null) {
-            return null;
-        }
-
-        final SubLevelStorage storage = holdingChunkMap.getStorage();
-        if (StoredSubLevelLookup.findAtPointer(storage, pointer, subLevelId, targetPlotX, targetPlotZ) == null) {
-            return null;
-        }
-
-        // Sable caches holding chunks. A valid disk pointer can therefore refer
-        // to data that is not present in the already-loaded chunk. Avoid calling
-        // snatchAndLoad in that case; it would emit a misleading ERROR and the
-        // storage scan below can locate the current pointer instead.
-        final SubLevelHoldingChunkMapAccessor mapAccessor = (SubLevelHoldingChunkMapAccessor) holdingChunkMap;
-        final SubLevelHoldingChunk loadedChunk = mapAccessor.waystonessable$getLoadedHoldingChunks()
-                .get(pointer.chunkPos().toLong());
-        if (loadedChunk != null
-                && !((SubLevelHoldingChunkAccessor) loadedChunk)
-                .waystonessable$getLoadedHoldingSubLevels().containsKey(subLevelId)) {
-            return null;
-        }
-        if (loadedChunk == null) {
-            final SubLevelHoldingChunk diskChunk = storage.attemptLoadHoldingChunk(pointer.chunkPos());
-            if (diskChunk == null || !diskChunk.getSubLevelPointers().contains(pointer.local())) {
+    private static @Nullable RestoredSubLevel loadFromMemory(ServerSubLevelContainer container,
+                                                             SubLevelHoldingChunkMap map, UUID id, int x, int z, WaystoneTargetIdentity identity,
+                                                             WaystoneBindingSavedData index) {
+        if (StoredSubLevelLookup.findInMemory(map, id, x, z) == null) return null;
+        try {
+            final var held = map.getHoldingSubLevel(id);
+            if (held == null) return null;
+            final var owner = ((HoldingSubLevelOwner) (Object) held).waystonessable$getOwner();
+            final var accessor = (SubLevelHoldingChunkMapAccessor) map;
+            if (owner == null || accessor.waystonessable$getLoadedHoldingChunks().get(owner.getChunkPos().toLong()) != owner)
                 return null;
+            final var entries = ((SubLevelHoldingChunkAccessor) owner).waystonessable$getLoadedHoldingSubLevels();
+            if (entries.get(id) != held) return null;
+            // Validate the whole dependency group before mutating any holding state.
+            for (final var dependency : held.data().dependencies()) {
+                if (!entries.containsKey(dependency)) return null;
             }
+            // Only data accepted into the current holding owner can repair the canonical metadata and all hints.
+            index.record(identity.dimension().location().toString(), id, x, z, held.data().pose(), held.pointer());
+            final var snatched = ((SubLevelHoldingChunkAccessor) owner).waystonessable$snatch(id);
+            if (snatched == null) return null;
+            accessor.waystonessable$setDirty(owner.getChunkPos());
+            for (final var entry : snatched) map.loadHoldingSubLevel(entry);
+            return container.getSubLevel(id) instanceof ServerSubLevel loaded && identity.matches(container, loaded, id)
+                    ? new RestoredSubLevel(loaded, held.pointer()) : null;
+        } catch (RuntimeException exception) {
+            WaystonesSable.LOGGER.warn("Failed to restore holding SubLevel {} for Waystone teleport", id, exception);
+            return null;
         }
-
-        holdingChunkMap.snatchAndLoad(pointer, subLevelId);
-        if (container.getSubLevel(subLevelId) instanceof ServerSubLevel loaded) {
-            return new RestoredSubLevel(loaded, pointer);
-        }
-
-        return null;
     }
 
     public record RestoredSubLevel(ServerSubLevel subLevel, @Nullable GlobalSavedSubLevelPointer pointer) {

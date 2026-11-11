@@ -4,12 +4,16 @@
   "package": "com.sshakusora.waystonessable.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "waystones.WaystoneBlockEntityAccessor",
     "minecraft.EntityTeleportArrivalMixin",
     "minecraft.MinecraftServerMixin",
     "sable.ServerboundMovePlayerPacketMixin",
     "sable.SubLevelHoldingChunkAccessor",
+    "sable.HoldingSubLevelMixin",
+    "sable.SubLevelHoldingChunkMixin",
     "sable.SubLevelHoldingChunkMapAccessor",
     "sable.SubLevelHoldingChunkMapMixin",
+    "sable.SubLevelStorageMixin",
     "sable.SubLevelTrackingSystemMixin"
   ]
 }

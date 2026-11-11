@@ -25,6 +25,8 @@ public class WaystonesSable {
         NeoForge.EVENT_BUS.addListener(TeleportMotion::beforeEntityTick);
         NeoForge.EVENT_BUS.addListener(runtime::onContainerReady);
         NeoForge.EVENT_BUS.addListener(runtime::onServerStopping);
+        NeoForge.EVENT_BUS.addListener(runtime::onServerStarted);
+        NeoForge.EVENT_BUS.addListener(runtime::onServerTick);
         Balmstrap.onRuntimeAvailable(runtime::register);
     }
 

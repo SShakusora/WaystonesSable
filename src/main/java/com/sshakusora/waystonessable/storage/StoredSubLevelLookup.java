@@ -1,15 +1,13 @@
 package com.sshakusora.waystonessable.storage;
 
 import com.sshakusora.waystonessable.WaystonesSable;
+import com.sshakusora.waystonessable.association.WaystoneBindingSavedData;
 import com.sshakusora.waystonessable.association.WaystoneSubLevelBinding;
-
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.companion.math.Pose3dc;
 import dev.ryanhcode.sable.sublevel.storage.HoldingSubLevel;
-import dev.ryanhcode.sable.sublevel.storage.holding.GlobalSavedSubLevelPointer;
 import dev.ryanhcode.sable.sublevel.storage.holding.SubLevelHoldingChunkMap;
 import dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelData;
-import dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelStorage;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Optional;
@@ -27,17 +25,6 @@ public final class StoredSubLevelLookup {
                                      final int plotX, final int plotZ) {
         final HoldingSubLevel held = map.getHoldingSubLevel(id);
         return held != null && matches(held.data(), id, plotX, plotZ) ? held.data() : null;
-    }
-
-    @Nullable
-    static SubLevelData findAtPointer(final SubLevelStorage storage,
-                                      @Nullable final GlobalSavedSubLevelPointer pointer,
-                                      final UUID id, final int plotX, final int plotZ) {
-        if (pointer == null) {
-            return null;
-        }
-        final SubLevelData data = storage.attemptLoadSubLevel(pointer.chunkPos(), pointer.local());
-        return data != null && matches(data, id, plotX, plotZ) ? data : null;
     }
 
     static boolean matches(final SubLevelData data, final UUID id, final int plotX, final int plotZ) {
@@ -60,11 +47,12 @@ public final class StoredSubLevelLookup {
             return Optional.empty();
         }
         try {
-            SubLevelData data = findInMemory(map, binding.subLevelId(), plotX, plotZ);
-            if (data == null) {
-                data = findAtPointer(map.getStorage(), binding.pointer(), binding.subLevelId(), plotX, plotZ);
-            }
-            return data == null ? Optional.empty() : Optional.of(data.pose());
+            final SubLevelData data = findInMemory(map, binding.subLevelId(), plotX, plotZ);
+            if (data != null) return Optional.of(data.pose());
+            final var metadata = WaystoneBindingSavedData.getOrLoad(container.getLevel().getServer())
+                    .metadata(binding.dimension(), binding.subLevelId());
+            return metadata == null || !metadata.matchesPlot(plotX, plotZ)
+                    ? Optional.empty() : Optional.of(metadata.pose());
         } catch (final RuntimeException exception) {
             WaystonesSable.LOGGER.warn("Failed to read pose of SubLevel {} for Waystone position", binding.subLevelId(), exception);
             return Optional.empty();
