@@ -1,0 +1,10 @@
+{
+  "replace": false,
+  "values": [
+    "#waystones:waystones",
+    "#waystones:sharestones",
+    "waystones:warp_plate",
+    "waystones:fleeting_memorial",
+    "waystones:warp_portal"
+  ]
+}

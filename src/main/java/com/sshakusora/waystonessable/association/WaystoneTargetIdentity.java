@@ -1,11 +1,9 @@
 package com.sshakusora.waystonessable.association;
 
-import com.sshakusora.waystonessable.mixin.waystones.WaystoneBlockEntityAccessor;
 import com.sshakusora.waystonessable.spatial.SubLevelPlotLookup;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import net.blay09.mods.waystones.api.Waystone;
-import net.blay09.mods.waystones.block.entity.WaystoneBlockEntityBase;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
@@ -33,14 +31,11 @@ public record WaystoneTargetIdentity(UUID waystoneId, ResourceKey<Level> dimensi
                 || subLevel.getLevel() != level || !dimension.equals(level.dimension())
                 || SubLevelPlotLookup.findLoadedSubLevel(container, position) != subLevel) return false;
         // The plot was verified above, so this cannot fall through to vanilla reserved-coordinate loading.
-        if (!(level.getBlockEntity(position) instanceof WaystoneBlockEntityBase blockEntity)
-                || blockEntity.isRemoved() || blockEntity.getLevel() != level
+        final var blockEntity = level.getBlockEntity(position);
+        if (blockEntity == null || blockEntity.isRemoved() || blockEntity.getLevel() != level
                 || !position.equals(blockEntity.getBlockPos())) return false;
-        final var actual = blockEntity.getWaystone();
         // Packed/restored BEs may not have received onLoad yet. Their persisted UUID is authoritative then.
-        final var actualId = actual != null && actual.isValid() ? actual.getWaystoneUid()
-                : ((WaystoneBlockEntityAccessor) blockEntity).waystonessable$getStoredUid();
-        return waystoneId.equals(actualId);
+        return waystoneId.equals(WaystoneBlockIdentities.get(blockEntity));
     }
 
     @Contract("_, null -> false")
