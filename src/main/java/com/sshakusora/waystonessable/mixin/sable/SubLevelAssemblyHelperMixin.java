@@ -3,19 +3,45 @@ package com.sshakusora.waystonessable.mixin.sable;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import com.sshakusora.waystonessable.assembly.WaystoneAssemblySelection;
+import com.sshakusora.waystonessable.assembly.WaystoneBlockPairs;
 import com.sshakusora.waystonessable.association.WaystoneAssemblyMigration;
 import dev.ryanhcode.sable.Sable;
 import dev.ryanhcode.sable.api.SubLevelAssemblyHelper;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
+import dev.ryanhcode.sable.companion.math.BoundingBox3ic;
+import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
+import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
 @Mixin(value = SubLevelAssemblyHelper.class, remap = false)
 public abstract class SubLevelAssemblyHelperMixin {
+    @WrapMethod(method = "assembleBlocks")
+    private static ServerSubLevel waystonessable$assembleWholeWaystones(ServerLevel level, BlockPos anchor,
+                                                                        Iterable<BlockPos> blocks, BoundingBox3ic bounds,
+                                                                        Operation<ServerSubLevel> original) {
+        final var selection = WaystoneAssemblySelection.complete(level, blocks, bounds);
+        return original.call(level, anchor, selection.blocks(), selection.bounds());
+    }
+
+    @WrapMethod(method = "gatherConnectedBlocks")
+    private static SubLevelAssemblyHelper.GatherResult waystonessable$gatherWholeWaystones(
+            BlockPos gatherOrigin, ServerLevel level, int maximumBlocksToAssemble,
+            @Nullable SubLevelAssemblyHelper.FrontierPredicate frontierPredicate,
+            Operation<SubLevelAssemblyHelper.GatherResult> original) {
+        // Enqueue partners during gathering so they count towards the caller's limit, even with a custom predicate.
+        final SubLevelAssemblyHelper.FrontierPredicate connected = frontierPredicate == null ? null
+                : (pos, state, candidate, candidateState, direction) ->
+                WaystoneBlockPairs.connects(pos, state, candidate, candidateState)
+                        || frontierPredicate.isValidConnection(pos, state, candidate, candidateState, direction);
+        return original.call(gatherOrigin, level, maximumBlocksToAssemble, connected);
+    }
+
     @WrapMethod(method = "moveBlocks")
     private static void waystonessable$moveIdentities(ServerLevel level,
                                                       SubLevelAssemblyHelper.AssemblyTransform transform,

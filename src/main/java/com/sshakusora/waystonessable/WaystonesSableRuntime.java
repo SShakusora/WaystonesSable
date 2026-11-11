@@ -1,5 +1,6 @@
 package com.sshakusora.waystonessable;
 
+import com.sshakusora.waystonessable.assembly.WaystoneAssemblyConnections;
 import com.sshakusora.waystonessable.association.WaystoneBindingTracker;
 import com.sshakusora.waystonessable.requirement.SubLevelDistanceRequirements;
 import com.sshakusora.waystonessable.selection.SubLevelWaystoneGroup;
@@ -12,6 +13,7 @@ import dev.ryanhcode.sable.neoforge.event.ForgeSableSubLevelContainerReadyEvent;
 import net.blay09.mods.balm.api.Balm;
 import net.blay09.mods.balm.api.event.EventPriority;
 import net.blay09.mods.waystones.api.event.*;
+import net.neoforged.fml.ModList;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
@@ -41,6 +43,7 @@ public final class WaystonesSableRuntime {
 
     public void onCommonSetup(final FMLCommonSetupEvent event) {
         event.enqueueWork(SubLevelDistanceRequirements::register);
+        if (ModList.get().isLoaded("create")) event.enqueueWork(WaystoneAssemblyConnections::register);
     }
 
     public void onContainerReady(final ForgeSableSubLevelContainerReadyEvent event) {

@@ -2,5 +2,6 @@
   "waystones.groups.sable": "Sable 物理结构",
   "gui.waystonessable.waystone_group.sable": "Sable 物理结构",
   "chat.waystonessable.player_target_unavailable": "配对玩家当前不可用，或已不再携带配对的双生羽毛。",
-  "chat.waystonessable.return_scroll_no_target": "当前没有可确定世界位置的返回目标。"
+  "chat.waystonessable.return_scroll_no_target": "当前没有可确定世界位置的返回目标。",
+  "chat.waystonessable.incomplete_waystone": "无法组装：位于 %s，%s，%s 的传送石缺少匹配的另一半。"
 }

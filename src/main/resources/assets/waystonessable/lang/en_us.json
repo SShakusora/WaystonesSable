@@ -2,5 +2,6 @@
   "waystones.groups.sable": "Sable SubLevels",
   "gui.waystonessable.waystone_group.sable": "Sable SubLevels",
   "chat.waystonessable.player_target_unavailable": "The linked player is unavailable or no longer carrying a paired feather. ",
-  "chat.waystonessable.return_scroll_no_target": "No return destination with a known world position is available."
+  "chat.waystonessable.return_scroll_no_target": "No return destination with a known world position is available.",
+  "chat.waystonessable.incomplete_waystone": "Cannot assemble: the waystone at %s, %s, %s is missing its matching half."
 }
